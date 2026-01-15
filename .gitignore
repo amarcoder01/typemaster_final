@@ -1,0 +1,116 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Vite
+server/public
+vite.config.ts.*
+
+# Archives
+*.tar.gz
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env*.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Misc
+*.pem
+.cache
+*.tsbuildinfo
+
+# Attached assets (large files for development only)
+attached_assets/*.png
+attached_assets/*.jpg
+attached_assets/*.jpeg
+
+# State files (for development)
+cursor_state.png
+step*.png
+typing-paragraph.png
+
+# Local config
+.local
+.trae
+
+# Security scan reports (contain sensitive paths)
+gitleaks-report.json
+gitleaks-full-history-report.json
+final-security-check.json
+security-audit-report/
+*.sarif
+
+# Private keys
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+
+# Secrets baseline (may contain file paths)
+# .secrets.baseline  # Keep tracked for team consistency
+# Auto-generated entries
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Sensitive files (auto-detected)
+.env
+cloudbuild.yaml
+dist
+node_modules
+

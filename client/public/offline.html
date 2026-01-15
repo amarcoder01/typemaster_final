@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Offline - TypeMasterAI</title>
+  <meta name="description" content="You are currently offline. TypeMasterAI requires an internet connection for the best experience." />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <style>
+    :root {
+      --background: #0f172a;
+      --foreground: #e2e8f0;
+      --primary: #00ffff;
+      --muted: #64748b;
+      --card: #1e293b;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--background);
+      color: var(--foreground);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+    }
+    
+    .container {
+      max-width: 480px;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+    
+    .logo-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6, #00ffff);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      color: #0f172a;
+    }
+    
+    .logo-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+    
+    .logo-text span {
+      color: var(--primary);
+    }
+    
+    .icon-offline {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1.5rem;
+      opacity: 0.6;
+    }
+    
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: var(--foreground);
+    }
+    
+    p {
+      color: var(--muted);
+      font-size: 1.1rem;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    
+    .tips {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: left;
+      margin-bottom: 2rem;
+    }
+    
+    .tips h2 {
+      font-size: 1rem;
+      color: var(--foreground);
+      margin-bottom: 0.75rem;
+    }
+    
+    .tips ul {
+      list-style: none;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    
+    .tips li {
+      padding: 0.5rem 0;
+      padding-left: 1.5rem;
+      position: relative;
+    }
+    
+    .tips li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--primary);
+    }
+    
+    .retry-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.875rem 2rem;
+      background: var(--primary);
+      color: var(--background);
+      font-weight: 600;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    
+    .retry-button:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    
+    .retry-button:active {
+      transform: translateY(0);
+    }
+    
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 1.5rem;
+      }
+      
+      p {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <div class="logo-badge">TM</div>
+      <div class="logo-text">TypeMaster<span>AI</span></div>
+    </div>
+    
+    <svg class="icon-offline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M1 1l22 22M9 9a3 3 0 0 1 4.56-.45M5.64 5.64A9 9 0 0 0 3.35 8.5M21.58 14.17A9 9 0 0 0 21 8.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M11.67 12.83A3 3 0 0 0 14 15M7.91 11A6 6 0 0 0 5.63 12M16.36 12a6 6 0 0 0-1.55-1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="12" cy="18" r="1" fill="currentColor"/>
+    </svg>
+    
+    <h1>You're Offline</h1>
+    
+    <p>
+      It looks like you've lost your internet connection. 
+      TypeMasterAI needs a connection to load typing tests and save your progress.
+    </p>
+    
+    <div class="tips">
+      <h2>While you wait, you can:</h2>
+      <ul>
+        <li>Check your Wi-Fi or mobile data connection</li>
+        <li>Try moving closer to your router</li>
+        <li>Restart your network adapter</li>
+        <li>Check if other websites are loading</li>
+      </ul>
+    </div>
+    
+    <button class="retry-button" onclick="window.location.reload()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 4v6h-6M1 20v-6h6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Try Again
+    </button>
+  </div>
+  
+  <script>
+    // Auto-reload when connection is restored
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>
+

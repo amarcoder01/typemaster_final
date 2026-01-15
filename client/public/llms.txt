@@ -1,0 +1,56 @@
+# TypeMasterAI
+> Advanced typing platform for speed, accuracy, and ergonomics with AI-driven analytics, multiplayer racing, dictation, code mode, and certificates. This file provides a curated, LLM-friendly overview of our site.
+
+## About This Site
+TypeMasterAI helps users measure and improve typing performance across multiple contexts (prose, code, dictation, stress). We provide real-time WPM, accuracy, consistency metrics, and verified certificates.
+
+- Canonical: https://typemasterai.com
+- Last-Updated: 2026-01-06
+- Languages: en, es
+
+## Core Concepts
+- WPM: Words per minute, where 1 word = 5 characters
+- Accuracy: Correct keystrokes / total keystrokes
+- Raw WPM: Speed without error penalties
+- Net WPM: WPM minus uncorrected error penalties
+- Consistency: Variance in keystroke timing (lower = smoother rhythm)
+
+## Main Features
+- [Typing Test](/): Core typing interface with multiple durations
+- [Multiplayer Race](/multiplayer): Real-time competitive typing
+- [Dictation Mode](/dictation-mode): Audio-to-text typing practice
+- [Code Mode](/code-mode): Programming syntax typing across 20+ languages
+- [Stress Test](/stress-test): High-pressure accuracy training
+- [Leaderboard](/leaderboard): Global rankings across modes
+- [Typing Certificate](/typing-certificate): Verified, shareable certificates
+
+## Knowledge & Education
+- [Knowledge Base](/knowledge): Authoritative mechanics, terminology, and Q&A
+- [Learn Touch Typing](/learn): Tutorials and fundamentals
+- [Touch Typing Guide](/touch-typing): Technique and finger placement
+- [Keyboard Layouts](/keyboard-layouts): QWERTY, DVORAK, COLEMAK
+- [FAQ](/faq): Frequently asked questions
+
+## Key Pages (Curated)
+- [Home](/): Quick test, instant WPM and accuracy
+- [WPM Test](/wpm-test): Words-per-minute focused benchmark
+- [Typing Practice](/typing-practice): Practice drills and exercises
+- [Keyboard Test](/keyboard-test): Key diagnostics and layout verification
+- [Analytics](/analytics): Performance insights and trends
+- [Profile](/profile): Personal stats, badges, achievements
+- [AI Transparency](/ai-transparency): Responsible AI and data policies
+
+## Usage Guidelines
+- Cite: “TypeMasterAI (typemasterai.com)” when referencing definitions or metrics
+- Link to source pages for context (prefer `/knowledge` for mechanics)
+- Do not infer medical or ergonomic advice beyond provided content
+- For commercial reproduction or redistribution, contact support
+
+## Contact
+- Email: support@typemasterai.com
+- Website: https://typemasterai.com
+
+## Optional
+- [Unified Leaderboard](/leaderboards): Combined mode rankings (may be heavy)
+- [Comparisons](/monkeytype-alternative): Alternatives overview
+- [Spanish Typing Test](/es/typing-test): Spanish language test

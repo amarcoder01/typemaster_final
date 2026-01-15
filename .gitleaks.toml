@@ -1,0 +1,506 @@
+# ============================================
+# Enterprise-Grade Gitleaks Configuration
+# TypeMasterAI Security Scanning
+# Version: 1.0.0
+# ============================================
+
+title = "TypeMasterAI Enterprise Security Rules"
+
+# ============================================
+# GLOBAL CONFIGURATION
+# ============================================
+[extend]
+# Extend the default gitleaks rules
+useDefault = true
+
+# ============================================
+# CUSTOM RULES - API KEYS & TOKENS
+# ============================================
+
+[[rules]]
+id = "openai-api-key"
+description = "OpenAI API Key detected"
+regex = '''(?i)(?:openai[_-]?api[_-]?key|sk-)[a-zA-Z0-9]{20,}'''
+keywords = ["openai", "sk-"]
+entropy = 3.5
+secretGroup = 0
+tags = ["api", "openai", "ai", "critical"]
+
+[[rules]]
+id = "openai-organization-key"
+description = "OpenAI Organization Key detected"
+regex = '''org-[a-zA-Z0-9]{24,}'''
+keywords = ["org-"]
+tags = ["api", "openai", "organization"]
+
+[[rules]]
+id = "azure-api-key"
+description = "Azure API Key detected"
+regex = '''(?i)(?:azure[_-]?(?:api[_-]?key|subscription[_-]?key|cognitive[_-]?key))['":\s=]+[a-zA-Z0-9]{32,}'''
+keywords = ["azure"]
+tags = ["api", "azure", "cloud", "critical"]
+
+[[rules]]
+id = "azure-connection-string"
+description = "Azure Connection String detected"
+regex = '''(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[a-zA-Z0-9+/=]{88}'''
+keywords = ["DefaultEndpointsProtocol", "AccountKey"]
+tags = ["azure", "storage", "critical"]
+
+[[rules]]
+id = "google-api-key"
+description = "Google API Key detected"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+keywords = ["AIza"]
+tags = ["api", "google", "critical"]
+
+[[rules]]
+id = "google-oauth-client-secret"
+description = "Google OAuth Client Secret detected"
+regex = '''(?i)(?:google[_-]?(?:client[_-]?secret|oauth[_-]?secret))['":\s=]+[a-zA-Z0-9_-]{24,}'''
+keywords = ["google", "client_secret", "oauth"]
+tags = ["oauth", "google", "critical"]
+
+[[rules]]
+id = "github-personal-access-token"
+description = "GitHub Personal Access Token detected"
+regex = '''ghp_[a-zA-Z0-9]{36}'''
+keywords = ["ghp_"]
+tags = ["github", "token", "critical"]
+
+[[rules]]
+id = "github-oauth-token"
+description = "GitHub OAuth Token detected"
+regex = '''gho_[a-zA-Z0-9]{36}'''
+keywords = ["gho_"]
+tags = ["github", "oauth", "critical"]
+
+[[rules]]
+id = "github-app-token"
+description = "GitHub App Token detected"
+regex = '''(?:ghu|ghs)_[a-zA-Z0-9]{36}'''
+keywords = ["ghu_", "ghs_"]
+tags = ["github", "app", "critical"]
+
+[[rules]]
+id = "github-refresh-token"
+description = "GitHub Refresh Token detected"
+regex = '''ghr_[a-zA-Z0-9]{36}'''
+keywords = ["ghr_"]
+tags = ["github", "refresh", "critical"]
+
+[[rules]]
+id = "facebook-app-secret"
+description = "Facebook App Secret detected"
+regex = '''(?i)(?:facebook[_-]?(?:app[_-]?secret|client[_-]?secret))['":\s=]+[a-f0-9]{32}'''
+keywords = ["facebook", "app_secret", "client_secret"]
+tags = ["facebook", "oauth", "critical"]
+
+[[rules]]
+id = "facebook-access-token"
+description = "Facebook Access Token detected"
+regex = '''EAA[a-zA-Z0-9]{100,}'''
+keywords = ["EAA"]
+tags = ["facebook", "token", "critical"]
+
+[[rules]]
+id = "vapid-private-key"
+description = "VAPID Private Key detected"
+regex = '''(?i)(?:vapid[_-]?private[_-]?key)['":\s=]+[a-zA-Z0-9_-]{43}=?'''
+keywords = ["vapid", "private"]
+tags = ["push", "vapid", "high"]
+
+[[rules]]
+id = "mailgun-api-key"
+description = "Mailgun API Key detected"
+regex = '''(?i)(?:mailgun[_-]?api[_-]?key|key-)[a-f0-9]{32}'''
+keywords = ["mailgun", "key-"]
+tags = ["email", "mailgun", "high"]
+
+[[rules]]
+id = "sendgrid-api-key"
+description = "SendGrid API Key detected"
+regex = '''SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}'''
+keywords = ["SG."]
+tags = ["email", "sendgrid", "high"]
+
+[[rules]]
+id = "twilio-api-key"
+description = "Twilio API Key detected"
+regex = '''SK[a-f0-9]{32}'''
+keywords = ["SK"]
+tags = ["sms", "twilio", "high"]
+
+[[rules]]
+id = "stripe-api-key"
+description = "Stripe API Key detected"
+regex = '''(?:sk|pk|rk)_(?:live|test)_[a-zA-Z0-9]{24,}'''
+keywords = ["sk_live", "sk_test", "pk_live", "pk_test", "rk_live", "rk_test"]
+tags = ["payment", "stripe", "critical"]
+
+[[rules]]
+id = "aws-access-key-id"
+description = "AWS Access Key ID detected"
+regex = '''(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
+keywords = ["AKIA", "ASIA", "AIDA", "AGPA", "AROA", "AIPA", "ANPA", "ANVA", "A3T"]
+tags = ["aws", "access-key", "critical"]
+
+[[rules]]
+id = "aws-secret-access-key"
+description = "AWS Secret Access Key detected"
+regex = '''(?i)(?:aws[_-]?secret[_-]?access[_-]?key|aws[_-]?secret[_-]?key)['":\s=]+[a-zA-Z0-9/+=]{40}'''
+keywords = ["aws_secret", "secret_access_key"]
+tags = ["aws", "secret-key", "critical"]
+
+[[rules]]
+id = "slack-webhook"
+description = "Slack Webhook URL detected"
+regex = '''https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8,12}/[a-zA-Z0-9_]{24}'''
+keywords = ["hooks.slack.com"]
+tags = ["slack", "webhook", "high"]
+
+[[rules]]
+id = "slack-token"
+description = "Slack Token detected"
+regex = '''xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24}'''
+keywords = ["xoxb-", "xoxa-", "xoxp-", "xoxr-", "xoxs-"]
+tags = ["slack", "token", "high"]
+
+[[rules]]
+id = "discord-webhook"
+description = "Discord Webhook URL detected"
+regex = '''https://discord(?:app)?\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+'''
+keywords = ["discord.com/api/webhooks", "discordapp.com/api/webhooks"]
+tags = ["discord", "webhook", "high"]
+
+[[rules]]
+id = "discord-bot-token"
+description = "Discord Bot Token detected"
+regex = '''[MN][A-Za-z\d]{23,}\.[\w-]{6}\.[\w-]{27}'''
+keywords = ["discord", "bot"]
+tags = ["discord", "bot", "high"]
+
+# ============================================
+# DATABASE & CONNECTION STRINGS
+# ============================================
+
+[[rules]]
+id = "postgresql-connection-string"
+description = "PostgreSQL Connection String detected"
+regex = '''(?i)postgres(?:ql)?://[^:]+:[^@]+@[^/]+/[^\s'"]+'''
+keywords = ["postgres://", "postgresql://"]
+tags = ["database", "postgresql", "critical"]
+
+[[rules]]
+id = "mysql-connection-string"
+description = "MySQL Connection String detected"
+regex = '''(?i)mysql://[^:]+:[^@]+@[^/]+/[^\s'"]+'''
+keywords = ["mysql://"]
+tags = ["database", "mysql", "critical"]
+
+[[rules]]
+id = "mongodb-connection-string"
+description = "MongoDB Connection String detected"
+regex = '''mongodb(?:\+srv)?://[^:]+:[^@]+@[^\s'"]+'''
+keywords = ["mongodb://", "mongodb+srv://"]
+tags = ["database", "mongodb", "critical"]
+
+[[rules]]
+id = "redis-connection-string"
+description = "Redis Connection String detected"
+regex = '''redis://[^:]*:[^@]+@[^\s'"]+'''
+keywords = ["redis://"]
+tags = ["database", "redis", "high"]
+
+# ============================================
+# CRYPTOGRAPHIC KEYS & CERTIFICATES
+# ============================================
+
+[[rules]]
+id = "rsa-private-key"
+description = "RSA Private Key detected"
+regex = '''-----BEGIN RSA PRIVATE KEY-----'''
+keywords = ["BEGIN RSA PRIVATE KEY"]
+tags = ["key", "rsa", "critical"]
+
+[[rules]]
+id = "openssh-private-key"
+description = "OpenSSH Private Key detected"
+regex = '''-----BEGIN OPENSSH PRIVATE KEY-----'''
+keywords = ["BEGIN OPENSSH PRIVATE KEY"]
+tags = ["key", "ssh", "critical"]
+
+[[rules]]
+id = "dsa-private-key"
+description = "DSA Private Key detected"
+regex = '''-----BEGIN DSA PRIVATE KEY-----'''
+keywords = ["BEGIN DSA PRIVATE KEY"]
+tags = ["key", "dsa", "critical"]
+
+[[rules]]
+id = "ec-private-key"
+description = "EC Private Key detected"
+regex = '''-----BEGIN EC PRIVATE KEY-----'''
+keywords = ["BEGIN EC PRIVATE KEY"]
+tags = ["key", "ec", "critical"]
+
+[[rules]]
+id = "pgp-private-key"
+description = "PGP Private Key detected"
+regex = '''-----BEGIN PGP PRIVATE KEY BLOCK-----'''
+keywords = ["BEGIN PGP PRIVATE KEY"]
+tags = ["key", "pgp", "critical"]
+
+[[rules]]
+id = "encrypted-private-key"
+description = "Encrypted Private Key detected"
+regex = '''-----BEGIN ENCRYPTED PRIVATE KEY-----'''
+keywords = ["BEGIN ENCRYPTED PRIVATE KEY"]
+tags = ["key", "encrypted", "high"]
+
+# ============================================
+# SESSION & JWT SECRETS
+# ============================================
+
+[[rules]]
+id = "session-secret"
+description = "Session Secret detected"
+regex = '''(?i)(?:session[_-]?secret|cookie[_-]?secret)['":\s=]+[a-zA-Z0-9!@#$%^&*()_+={}\[\]:;"'<>,.?/\\|-]{16,}'''
+keywords = ["session_secret", "session-secret", "cookie_secret", "cookie-secret"]
+entropy = 4.0
+tags = ["session", "secret", "high"]
+
+[[rules]]
+id = "jwt-secret"
+description = "JWT Secret detected"
+regex = '''(?i)(?:jwt[_-]?secret|jwt[_-]?key)['":\s=]+[a-zA-Z0-9!@#$%^&*()_+={}\[\]:;"'<>,.?/\\|-]{16,}'''
+keywords = ["jwt_secret", "jwt-secret", "jwt_key"]
+entropy = 4.0
+tags = ["jwt", "secret", "high"]
+
+# ============================================
+# CLOUD PROVIDER SPECIFIC
+# ============================================
+
+[[rules]]
+id = "gcp-service-account"
+description = "GCP Service Account Key detected"
+regex = '''"type"\s*:\s*"service_account"'''
+keywords = ["service_account"]
+tags = ["gcp", "service-account", "critical"]
+
+[[rules]]
+id = "gcp-api-key"
+description = "GCP API Key detected"
+regex = '''(?i)(?:gcp[_-]?api[_-]?key|google[_-]?cloud[_-]?key)['":\s=]+[a-zA-Z0-9_-]{39}'''
+keywords = ["gcp", "google_cloud"]
+tags = ["gcp", "api", "critical"]
+
+[[rules]]
+id = "heroku-api-key"
+description = "Heroku API Key detected"
+regex = '''(?i)(?:heroku[_-]?api[_-]?key)['":\s=]+[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
+keywords = ["heroku"]
+tags = ["heroku", "api", "high"]
+
+[[rules]]
+id = "digitalocean-token"
+description = "DigitalOcean Access Token detected"
+regex = '''dop_v1_[a-f0-9]{64}'''
+keywords = ["dop_v1_"]
+tags = ["digitalocean", "token", "high"]
+
+[[rules]]
+id = "npm-token"
+description = "NPM Access Token detected"
+regex = '''npm_[a-zA-Z0-9]{36}'''
+keywords = ["npm_"]
+tags = ["npm", "token", "high"]
+
+[[rules]]
+id = "pypi-token"
+description = "PyPI Access Token detected"
+regex = '''pypi-[a-zA-Z0-9]{100,}'''
+keywords = ["pypi-"]
+tags = ["pypi", "token", "high"]
+
+# ============================================
+# GENERIC SECRETS WITH HIGH ENTROPY
+# ============================================
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key detected"
+regex = '''(?i)(?:api[_-]?key|apikey)['":\s=]+['"]?[a-zA-Z0-9_-]{20,}['"]?'''
+keywords = ["api_key", "api-key", "apikey"]
+entropy = 4.5
+tags = ["api", "generic", "medium"]
+
+[[rules]]
+id = "generic-secret"
+description = "Generic Secret detected"
+regex = '''(?i)(?:secret|passwd|pwd)\s*[=:]\s*['"][^'"]{16,}['"]'''
+keywords = ["secret", "passwd", "pwd"]
+entropy = 4.5
+tags = ["secret", "generic", "medium"]
+
+[[rules]]
+id = "generic-token"
+description = "Generic Token detected"
+regex = '''(?i)(?:access[_-]?token|auth[_-]?token|bearer[_-]?token)['":\s=]+['"]?[a-zA-Z0-9_.-]{20,}['"]?'''
+keywords = ["access_token", "auth_token", "bearer"]
+entropy = 4.0
+tags = ["token", "generic", "medium"]
+
+[[rules]]
+id = "base64-encoded-secret"
+description = "Base64 Encoded Secret (high entropy)"
+regex = '''[A-Za-z0-9+/]{40,}={0,2}'''
+entropy = 5.5
+keywords = []
+tags = ["base64", "encoded", "low"]
+
+# ============================================
+# INFRASTRUCTURE & DEPLOYMENT
+# ============================================
+
+[[rules]]
+id = "docker-registry-auth"
+description = "Docker Registry Authentication detected"
+regex = '''(?i)(?:docker[_-]?(?:password|auth|token))['":\s=]+[^\s'"]+'''
+keywords = ["docker_password", "docker_auth", "docker_token"]
+tags = ["docker", "registry", "high"]
+
+[[rules]]
+id = "kubernetes-secret"
+description = "Kubernetes Secret detected"
+regex = '''(?i)(?:k8s[_-]?secret|kube[_-]?secret)['":\s=]+[^\s'"]+'''
+keywords = ["k8s_secret", "kube_secret"]
+tags = ["kubernetes", "secret", "high"]
+
+[[rules]]
+id = "terraform-cloud-token"
+description = "Terraform Cloud Token detected"
+regex = '''(?i)(?:tfe[_-]?token|terraform[_-]?token)['":\s=]+[a-zA-Z0-9]{14,}\.atlasv1\.[a-zA-Z0-9]{60,}'''
+keywords = ["tfe_token", "terraform_token", "atlasv1"]
+tags = ["terraform", "token", "high"]
+
+# ============================================
+# ALLOWLIST - PATHS TO IGNORE
+# ============================================
+
+[allowlist]
+description = "Global allowlist for false positives"
+
+# Files to completely ignore
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''\.env$''',
+  '''\.env\.local$''',
+  '''\.env\.development$''',
+  '''\.env\.production$''',
+  '''\.env\.test$''',
+  '''\.env\.example$''',
+  '''env\.example$''',
+  '''\.env\.sample$''',
+  '''\.env\.template$''',
+  '''node_modules/''',
+  '''vendor/''',
+  '''dist/''',
+  '''build/''',
+  '''\.git/''',
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+  '''yarn\.lock$''',
+  '''\.min\.js$''',
+  '''\.min\.css$''',
+  '''\.map$''',
+  '''attached_assets/''',
+  '''generated_images/''',
+  '''\.png$''',
+  '''\.jpg$''',
+  '''\.jpeg$''',
+  '''\.gif$''',
+  '''\.svg$''',
+  '''\.ico$''',
+  '''\.woff$''',
+  '''\.woff2$''',
+  '''\.ttf$''',
+  '''\.eot$''',
+]
+
+# Regex patterns to ignore (false positives)
+regexes = [
+  # Example/placeholder values
+  '''(?i)your[-_]?(api[-_]?key|secret|password|token)''',
+  '''(?i)example[-_]?(api[-_]?key|secret|password|token)''',
+  '''(?i)placeholder''',
+  '''(?i)xxxxx+''',
+  '''(?i)dummy''',
+  '''(?i)changeme''',
+  '''(?i)replace[-_]?me''',
+  '''(?i)insert[-_]?here''',
+  '''(?i)<your[-_]?.*?>''',
+  '''(?i)\$\{.*?\}''',
+  '''(?i)%\{.*?\}''',
+  # Common test values
+  '''(?i)test[-_]?(api[-_]?key|secret|password|token)''',
+  '''(?i)dev[-_]?(api[-_]?key|secret|password|token)''',
+  '''(?i)fake[-_]?(api[-_]?key|secret|password|token)''',
+  '''(?i)mock[-_]?(api[-_]?key|secret|password|token)''',
+  # Documentation patterns
+  '''(?i)sk-your-openai-api-key''',
+  '''(?i)your-google-client-id''',
+  '''(?i)your-github-client-id''',
+  '''(?i)your-facebook-app-id''',
+  '''(?i)your-.*-key''',
+  '''(?i)your-.*-secret''',
+  '''(?i)your-.*-token''',
+  # Environment variable references
+  '''process\.env\.[A-Z_]+''',
+  '''os\.environ\[''',
+  '''os\.getenv\(''',
+  '''\$ENV\{''',
+  # Config file placeholders
+  '''(?i)postgresql://user(name)?:password@host''',
+  '''(?i)mysql://user(name)?:password@host''',
+  '''(?i)mongodb://user(name)?:password@host''',
+  # UUID patterns used in examples
+  '''00000000-0000-0000-0000-000000000000''',
+  '''xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx''',
+  # Code patterns - password fields in schemas/routes
+  '''(?i)password['"]?\s*:\s*(?:z\.string|passwordSchema|String|string)''',
+  '''(?i)path=['"]\/.*password''',
+  '''(?i)component=\{.*Password.*\}''',
+  '''(?i)ForgotPassword''',
+  '''(?i)ResetPassword''',
+  '''(?i)ChangePassword''',
+  # Zod schema patterns
+  '''passwordSchema\.''',
+  '''z\.string\(\)\.min\(''',
+  '''\.nullable\(\)\.optional\(\)''',
+  # PowerShell script patterns (helper scripts)
+  '''-ForegroundColor''',
+  '''Get-Random''',
+  '''Write-Host''',
+]
+
+# Commits to ignore (if any known false positive commits)
+commits = []
+
+# Stop words that indicate non-secrets
+stopwords = [
+  "example",
+  "sample",
+  "test",
+  "demo",
+  "placeholder",
+  "your-",
+  "fake",
+  "mock",
+  "dummy",
+  "changeme",
+  "xxx",
+]
+
+
