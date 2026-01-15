@@ -200,28 +200,46 @@ export function CertificateGenerator({ username, wpm, accuracy, mode, date, free
     ctx.strokeRect(200, boxY, canvas.width - 400, boxHeight);
 
     if (freestyle) {
-      // Freestyle mode
-      ctx.fillStyle = "#00ffff";
-      ctx.font = "bold 64px 'JetBrains Mono', monospace";
+      // Freestyle mode (include duration)
+      const modeText = mode >= 60 ? `${Math.floor(mode / 60)}min` : `${mode}s`;
+
+      // 4-column layout to show duration without dropping existing freestyle metrics
+      const x1 = 300;
+      const x2 = 500;
+      const x3 = 700;
+      const x4 = 900;
+
       ctx.textAlign = "center";
-      ctx.fillText(`${wpm}`, 400, boxY + 70);
+
+      // Use slightly smaller font so 4 columns fit comfortably
+      ctx.font = "bold 56px 'JetBrains Mono', monospace";
+
+      ctx.fillStyle = "#00ffff";
+      ctx.fillText(`${wpm}`, x1, boxY + 70);
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "18px 'DM Sans', sans-serif";
-      ctx.fillText("Words Per Minute", 400, boxY + 105);
+      ctx.font = "16px 'DM Sans', sans-serif";
+      ctx.fillText("WPM", x1, boxY + 105);
 
       ctx.fillStyle = "#a855f7";
-      ctx.font = "bold 64px 'JetBrains Mono', monospace";
-      ctx.fillText(`${words}`, canvas.width / 2, boxY + 70);
+      ctx.font = "bold 56px 'JetBrains Mono', monospace";
+      ctx.fillText(`${words}`, x2, boxY + 70);
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "18px 'DM Sans', sans-serif";
-      ctx.fillText("Words Typed", canvas.width / 2, boxY + 105);
+      ctx.font = "16px 'DM Sans', sans-serif";
+      ctx.fillText("Words", x2, boxY + 105);
 
       ctx.fillStyle = "#00ffff";
-      ctx.font = "bold 64px 'JetBrains Mono', monospace";
-      ctx.fillText(`${characters}`, 800, boxY + 70);
+      ctx.font = "bold 56px 'JetBrains Mono', monospace";
+      ctx.fillText(modeText, x3, boxY + 70);
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "18px 'DM Sans', sans-serif";
-      ctx.fillText("Characters", 800, boxY + 105);
+      ctx.font = "16px 'DM Sans', sans-serif";
+      ctx.fillText("Duration", x3, boxY + 105);
+
+      ctx.fillStyle = "#f59e0b";
+      ctx.font = "bold 56px 'JetBrains Mono', monospace";
+      ctx.fillText(`${characters}`, x4, boxY + 70);
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "16px 'DM Sans', sans-serif";
+      ctx.fillText("Chars", x4, boxY + 105);
     } else {
       // Standard mode
       ctx.fillStyle = "#00ffff";
