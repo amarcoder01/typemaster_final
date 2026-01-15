@@ -3896,11 +3896,21 @@ Test yourself: `,
             </DialogHeader>
 
             <Tabs defaultValue="quick" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-4">
-                <TabsTrigger value="quick" data-testid="tab-quick-share">Quick Share</TabsTrigger>
-                <TabsTrigger value="card" data-testid="tab-visual-card">Visual Card</TabsTrigger>
-                {user && <TabsTrigger value="certificate" data-testid="tab-certificate">Certificate</TabsTrigger>}
-                <TabsTrigger value="challenge" data-testid="tab-challenge">Challenge</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-4 gap-1 sm:gap-0">
+                <TabsTrigger value="quick" data-testid="tab-quick-share" className="text-xs sm:text-sm px-2 sm:px-3">
+                  Quick Share
+                </TabsTrigger>
+                <TabsTrigger value="card" data-testid="tab-visual-card" className="text-xs sm:text-sm px-2 sm:px-3">
+                  Visual Card
+                </TabsTrigger>
+                {user && (
+                  <TabsTrigger value="certificate" data-testid="tab-certificate" className="text-xs sm:text-sm px-2 sm:px-3">
+                    Certificate
+                  </TabsTrigger>
+                )}
+                <TabsTrigger value="challenge" data-testid="tab-challenge" className="text-xs sm:text-sm px-2 sm:px-3">
+                  Challenge
+                </TabsTrigger>
               </TabsList>
 
               {/* Quick Share Tab */}
