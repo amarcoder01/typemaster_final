@@ -4471,6 +4471,44 @@ Test duration: ${modeDisplay}
                       <Mail className="w-4 h-4 text-gray-400" />
                       <span className="text-xs font-medium">Email</span>
                     </button>
+                    <button
+                      onClick={async () => {
+                        const rating = getPerformanceRating();
+                        const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+                        const text = `🎯 TYPING CHALLENGE!\n\n${rating.emoji} Can you beat my ${wpm} WPM with ${accuracy}% accuracy?\n⏱️ ${modeDisplay} test | 🏅 ${rating.badge} Badge\n\nAccept the challenge: https://typemasterai.com`;
+                        try {
+                          await navigator.clipboard.writeText(text);
+                          toast({ title: "Copied for Discord!", description: "Paste into Discord to challenge your friends." });
+                        } catch {
+                          toast({ title: "Copy Failed", description: "Please copy the challenge message manually.", variant: "destructive" });
+                        }
+                        // Open Discord web/app as a convenience (message must be pasted manually)
+                        window.open('https://discord.com/app', '_blank', 'width=900,height=700');
+                        trackShare('challenge_discord');
+                      }}
+                      className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#5865F2]/10 hover:bg-[#5865F2]/25 border border-[#5865F2]/20 transition-all"
+                      data-testid="button-challenge-discord"
+                    >
+                      <svg className="w-4 h-4 text-[#5865F2]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M19.54 0c.37.02.69.27.8.62.9 2.84 1.42 5.77 1.52 8.72.02.55-.42 1.01-.97 1.01h-1.53c-.39 0-.74-.22-.91-.57l-.41-.86a12.2 12.2 0 0 0-2.1-3.02.5.5 0 0 0-.84.18l-.34 1.06c-.1.31-.4.52-.73.52h-4.1c-.33 0-.63-.21-.73-.52l-.34-1.06a.5.5 0 0 0-.84-.18 12.2 12.2 0 0 0-2.1 3.02l-.41.86c-.17.35-.52.57-.91.57H2.9c-.55 0-.99-.46-.97-1.01.1-2.95.62-5.88 1.52-8.72.11-.35.43-.6.8-.62C6.44-.06 9.11 0 12 0c2.89 0 5.56-.06 7.54 0zM8.5 9.5c-.83 0-1.5.78-1.5 1.75S7.67 13 8.5 13s1.5-.78 1.5-1.75S9.33 9.5 8.5 9.5zm7 0c-.83 0-1.5.78-1.5 1.75S14.67 13 15.5 13s1.5-.78 1.5-1.75S16.33 9.5 15.5 9.5z" />
+                        <path d="M6.25 14.65c.2-.14.47-.12.64.05.98.93 2.97 1.3 5.11 1.3 2.14 0 4.13-.37 5.11-1.3.17-.17.44-.19.64-.05l1.03.72c.24.17.3.5.12.74-1.36 1.84-4.24 3.09-6.9 3.09s-5.54-1.25-6.9-3.09a.55.55 0 0 1 .12-.74l1.03-.72z" />
+                      </svg>
+                      <span className="text-xs font-medium">Discord</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const rating = getPerformanceRating();
+                        const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+                        const smsText = `Typing challenge! Can you beat my ${wpm} WPM (${accuracy}% accuracy)? ${modeDisplay} test. Try: https://typemasterai.com`;
+                        window.open(`sms:?&body=${encodeURIComponent(smsText)}`);
+                        trackShare('challenge_sms');
+                      }}
+                      className="flex items-center justify-center gap-2 p-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/20 transition-all"
+                      data-testid="button-challenge-sms"
+                    >
+                      <MessageCircle className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-medium">SMS</span>
+                    </button>
                   </div>
 
                   {/* Copy Challenge Link */}
@@ -4489,6 +4527,29 @@ Test duration: ${modeDisplay}
                     <Copy className="w-4 h-4" />
                     Copy Challenge Message
                   </button>
+
+                  {'share' in navigator && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const rating = getPerformanceRating();
+                          const modeDisplay = mode >= 60 ? `${Math.floor(mode / 60)} minute` : `${mode} second`;
+                          const text = `🎯 Typing Challenge!\n\nCan you beat my ${wpm} WPM with ${accuracy}% accuracy?\n⏱️ ${modeDisplay} test | 🏅 ${rating.badge}\n\nTry it: https://typemasterai.com`;
+                          await (navigator as any).share({
+                            title: `Typing Challenge: ${wpm} WPM`,
+                            text,
+                            url: 'https://typemasterai.com',
+                          });
+                          trackShare('challenge_native');
+                        } catch { }
+                      }}
+                      className="w-full py-3 bg-gradient-to-r from-primary/10 to-purple-500/10 text-foreground font-medium rounded-xl hover:from-primary/20 hover:to-purple-500/20 transition-all flex items-center justify-center gap-2 border border-primary/20"
+                      data-testid="button-challenge-native-share"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      Share via...
+                    </button>
+                  )}
                 </div>
 
                 {/* Fun Stats */}
