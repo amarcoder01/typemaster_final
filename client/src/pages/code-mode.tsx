@@ -1276,11 +1276,12 @@ export default function CodeMode() {
       if (target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target.isContentEditable) {
-        // Only allow Escape to work in inputs
+        // Only allow Escape to work in inputs (restarts with same code)
         if (e.key === "Escape") {
           e.preventDefault();
+          e.stopPropagation();
           (target as HTMLElement).blur();
-          resetTest();
+          resetTest(true);
         }
         return;
       }
@@ -1298,10 +1299,10 @@ export default function CodeMode() {
         }
       }
 
-      // Escape to reset - always allowed
+      // Escape to reset - always allowed (restarts with same code)
       if (e.key === "Escape") {
         e.preventDefault();
-        resetTest();
+        resetTest(true);
       }
 
       // Any printable key: if test finished/failed, reset and start new; otherwise focus and type
