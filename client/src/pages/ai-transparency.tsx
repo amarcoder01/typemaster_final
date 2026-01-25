@@ -24,7 +24,7 @@ export default function AITransparency() {
         <section className="bg-primary/5 p-6 rounded-lg border border-primary/20">
           <h2 className="text-xl font-bold text-foreground mb-2">AI Systems We Use</h2>
           <p className="text-muted-foreground">
-            TypeMasterAI uses third-party artificial intelligence platforms to power various features. When you interact with AI features on our platform, you are communicating with an automated artificial intelligence system, not a human.
+            TypeMasterAI uses third-party artificial intelligence platforms to power various features. When you interact with AI features on our platform, you are communicating with an automated artificial intelligence system, not a staff member.
           </p>
         </section>
 
@@ -63,7 +63,7 @@ export default function AITransparency() {
                 AI Ghost Racers
               </h3>
               <p className="text-sm text-muted-foreground">
-                In multiplayer races, AI-powered bots may join to ensure engaging competitions even when fewer human players are available.
+                In multiplayer races, AI-powered bots may join to ensure engaging competitions even when fewer players are available.
               </p>
             </div>
           </div>

@@ -3686,6 +3686,10 @@ export class DatabaseStorage implements IStorage {
         throw new Error('RACE_FULL');
       }
       
+      // Note: maxHumans is NOT enforced here - room code joins allow unlimited players
+      // The maxHumans limit only prevents auto-joining (quick match into existing races)
+      // which is now handled by quick match always creating new races
+      
       const tokenPayload = `${participant.raceId}:${Date.now()}:${crypto.randomBytes(16).toString('hex')}`;
       const joinToken = crypto.createHmac('sha256', sessionSecret)
         .update(tokenPayload)

@@ -776,16 +776,16 @@ class RaceWebSocketServer {
    * Find the next eligible host after current host disconnects/leaves
    */
   private findNextHost(raceRoom: RaceRoom): number | undefined {
-    // Find human clients sorted by participantId (join order)
-    const humanClients = Array.from(raceRoom.clients.entries())
+    // Find eligible non-bot clients sorted by participantId (join order)
+    const eligibleClients = Array.from(raceRoom.clients.entries())
       .filter(([_, c]) => !c.isBot)
       .sort((a, b) => a[0] - b[0]);
     
-    if (humanClients.length === 0) {
+    if (eligibleClients.length === 0) {
       return undefined;
     }
     
-    return humanClients[0][0];
+    return eligibleClients[0][0];
   }
 
   /**
@@ -1007,7 +1007,7 @@ class RaceWebSocketServer {
     });
   }
 
-  // Broadcast when a bot is removed to make room for a human player
+  // Broadcast when a participant is removed to make room
   broadcastParticipantRemoved(raceId: number, removedParticipantId: number, allParticipants: RaceParticipant[]): void {
     const raceRoom = this.races.get(raceId);
     if (!raceRoom) return;
@@ -1782,6 +1782,10 @@ class RaceWebSocketServer {
       return;
     }
 
+    // Note: maxHumans is NOT enforced here - room code joins allow unlimited players
+    // The maxHumans limit only prevents auto-joining (quick match into existing races)
+    // which is now handled by quick match always creating new races
+
     // Store authenticated participant ID on the WebSocket for future validation
     (ws as any).authenticatedParticipantId = participantId;
     (ws as any).authenticatedRaceId = raceId;
@@ -1901,7 +1905,7 @@ class RaceWebSocketServer {
         raceRoom.hostParticipantId = race.creatorParticipantId;
         console.log(`[WS] Host set to creator: participant ${race.creatorParticipantId} for race ${raceId}`);
       } else {
-        // Fallback for legacy races without creator: use first human player
+        // Fallback for legacy races without creator: use first connected player
         raceRoom.hostParticipantId = participantId;
         console.log(`[WS] Host set (legacy): ${username} (${participantId}) for race ${raceId}`);
       }
@@ -1999,7 +2003,7 @@ class RaceWebSocketServer {
 
     this.updateStats();
     
-    // Start spontaneous bot chat when a human joins a race with bots
+    // Start spontaneous bot chat when a player joins a race with bots
     if (!client.isBot && participants.some(p => p.isBot === 1)) {
       this.startSpontaneousBotChat(raceId);
     }
@@ -2080,20 +2084,20 @@ class RaceWebSocketServer {
     const botParticipants = participants.filter(p => p.isBot === 1);
     const hasBots = botParticipants.length > 0;
     
-    console.log(`[WS] handleReady: Race ${raceId} has ${participants.length} participants (bots: ${botParticipants.length}, connected humans: ${connectedHumansCount})`);
+    console.log(`[WS] handleReady: Race ${raceId} has ${participants.length} participants (bots: ${botParticipants.length}, connected players: ${connectedHumansCount})`);
     
     // Minimum players required:
-    // - With bots: 1 human can start alone (racing against bots)
-    // - Without bots: 2 humans required (like TypeRacer)
+    // - With bots: 1 player can start alone
+    // - Without bots: 2 players required
     const requiredHumans = hasBots ? 1 : 2;
     
     if (connectedHumansCount < requiredHumans) {
-      // Not enough connected human players
+      // Not enough connected players
       const client = raceRoom.clients.get(participantId);
       if (client && client.ws.readyState === WebSocket.OPEN) {
         const needed = requiredHumans - connectedHumansCount;
         const message = hasBots 
-          ? "No human players connected. Please reconnect and try again."
+          ? "No players connected. Please reconnect and try again."
           : `Need ${needed} more player${needed > 1 ? 's' : ''} to start. Share your room code with friends!`;
         client.ws.send(JSON.stringify({
           type: "error",
@@ -2388,7 +2392,7 @@ class RaceWebSocketServer {
           code: "INSUFFICIENT_PLAYERS"
         });
 
-        console.log(`[WS Kick] Countdown cancelled for race ${raceId} after kicking - only ${connectedHumansCount} human player(s) remaining`);
+        console.log(`[WS Kick] Countdown cancelled for race ${raceId} after kicking - only ${connectedHumansCount} player(s) remaining`);
       } else {
         const latest = await storage.getRace(raceId);
         if (latest) {
@@ -2480,6 +2484,9 @@ class RaceWebSocketServer {
     raceRoom.pendingRejoinRequests.delete(targetParticipantId);
     
     if (approved) {
+      // Note: No maxHumans limit check - if host approves, the player can rejoin
+      // Room code joins and host-approved rejoins allow unlimited players
+      
       // Remove from kicked list to allow rejoining
       raceRoom.kickedPlayers.delete(targetParticipantId);
       
@@ -3071,13 +3078,13 @@ class RaceWebSocketServer {
     
     console.log(`[Timed Finish] All finished check: ${allFinished}, participants: ${freshParticipants.map(p => `${p.username}:${p.isFinished}`).join(', ')}`);
 
-    // For timed races, we should finish the race when the human finishes (timer expired on client)
+    // For timed races, we should finish the race when the initiating player finishes (timer expired on client)
     // Bots might still be "racing" but that's fine - the timer is the source of truth
     const connectedClients = raceRoom ? raceRoom.clients.size : 0;
     console.log(`[Timed Finish] Race room has ${connectedClients} connected clients`);
 
     // For timed races: Force-finish any bots that haven't finished yet
-    // The human's timer is the source of truth - when it expires, the race ends for everyone
+    // The player's timer is the source of truth - when it expires, the race ends for everyone
     if (!allFinished) {
       console.log(`[Timed Finish] Not all finished - force-finishing remaining bots for timed race ${raceId}`);
       const elapsedSeconds = race.timeLimitSeconds || 60;
@@ -3428,15 +3435,15 @@ class RaceWebSocketServer {
         await redisClient.srem(REDIS_KEYS.raceConnections(raceId), participantId.toString());
       }
       
-      // Host transfer: If the leaving player was the host, transfer to next available HUMAN player
+      // Host transfer: If the leaving player was the host, transfer to next available player
       if (raceRoom.hostParticipantId === participantId && raceRoom.clients.size > 0) {
-        // Find next human player (exclude bots) sorted by join order
-        const humanClients = Array.from(raceRoom.clients.entries())
+        // Find next non-bot player (exclude bots) sorted by join order
+        const eligibleClients = Array.from(raceRoom.clients.entries())
           .filter(([_, c]) => !c.isBot)
           .sort((a, b) => a[0] - b[0]); // Sort by participantId (join order)
         
-        if (humanClients.length > 0) {
-          const [nextHostId, newHostClient] = humanClients[0];
+        if (eligibleClients.length > 0) {
+          const [nextHostId, newHostClient] = eligibleClients[0];
           raceRoom.hostParticipantId = nextHostId;
           console.log(`[WS Leave] Host transferred to ${newHostClient.username} (${nextHostId}) for race ${raceId}`);
           
@@ -3447,9 +3454,9 @@ class RaceWebSocketServer {
             message: `${newHostClient.username} is now the host`,
           });
         } else {
-          // No human players left, clear host
+          // No players left, clear host
           raceRoom.hostParticipantId = undefined;
-          console.log(`[WS Leave] No human players left in race ${raceId}, host cleared`);
+          console.log(`[WS Leave] No players left in race ${raceId}, host cleared`);
         }
       }
       
@@ -3481,7 +3488,7 @@ class RaceWebSocketServer {
             code: "INSUFFICIENT_PLAYERS"
           });
 
-          console.log(`[WS Leave] Countdown cancelled for race ${raceId} - only ${connectedHumansCount} human player(s) remaining`);
+          console.log(`[WS Leave] Countdown cancelled for race ${raceId} - only ${connectedHumansCount} player(s) remaining`);
         } else {
           const latest = await storage.getRace(raceId);
           if (latest) {
@@ -3976,7 +3983,7 @@ class RaceWebSocketServer {
   private readonly SPONTANEOUS_CHAT_MIN_DELAY_MS = 4000; // Minimum 4 seconds between spontaneous messages
   private readonly SPONTANEOUS_CHAT_MAX_DELAY_MS = 12000; // Maximum 12 seconds between spontaneous messages
 
-  // Start spontaneous bot chat for a race (bots initiate messages without human prompting)
+  // Start spontaneous bot chat for a race (bots initiate messages without player prompting)
   private startSpontaneousBotChat(raceId: number) {
     // Don't start if already running
     if (this.spontaneousChatTimers.has(raceId)) {
@@ -4035,10 +4042,10 @@ class RaceWebSocketServer {
 
       const participants = await storage.getRaceParticipants(raceId);
       const botParticipants = participants.filter(p => p.isBot === 1);
-      const humanParticipants = participants.filter(p => p.isBot !== 1);
+      const nonBotParticipants = participants.filter(p => p.isBot !== 1);
 
-      if (botParticipants.length === 0 || humanParticipants.length === 0) {
-        return; // Need at least one bot and one human
+      if (botParticipants.length === 0 || nonBotParticipants.length === 0) {
+        return; // Need at least one bot and one player
       }
 
       // Check burst limit
@@ -4472,7 +4479,7 @@ class RaceWebSocketServer {
             role: "system",
             content: `You're ${botName} in a typing race game chat. Personality: ${personality.style} - ${personality.desc}
 
-BE HUMAN - text like you're in a group chat with friends:
+BE NATURAL - text like you're in a group chat with friends:
 - 2-8 words max, super short
 - Use: lol, haha, nah, yoo, bet, fr, lowkey, ngl, gg, rip, damn, nice, bruh, yo
 - Skip punctuation, lowercase mostly
@@ -4786,14 +4793,14 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
     return code;
   }
 
-  // Create certificates for human participants and return a map of participantId -> verificationId
+  // Create certificates for eligible participants and return a map of participantId -> verificationId
   private async createRaceCertificates(raceId: number, participants: any[]): Promise<Record<number, string>> {
     const certificateMap: Record<number, string> = {};
     
-    // Filter to human participants who have userId and are finished
-    const humanParticipants = participants.filter(p => p.userId && p.isBot !== 1);
+    // Filter to non-bot participants who have userId and are finished
+    const eligibleParticipants = participants.filter(p => p.userId && p.isBot !== 1);
     
-    if (humanParticipants.length === 0) {
+    if (eligibleParticipants.length === 0) {
       return certificateMap;
     }
     
@@ -4802,7 +4809,7 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
       const race = await storage.getRace(raceId);
       const totalParticipants = participants.length;
       
-      for (const participant of humanParticipants) {
+      for (const participant of eligibleParticipants) {
         try {
           const user = await storage.getUser(participant.userId);
           if (!user) {
@@ -4983,13 +4990,13 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
                 console.error(`[WS Disconnect] Host transfer failed:`, err);
               });
             } else {
-              // No human players left, clear host with lock protection
+              // No players left, clear host with lock protection
               if (!raceRoom.hostLock) {
                 raceRoom.hostLock = true;
                 raceRoom.hostParticipantId = undefined;
                 raceRoom.hostVersion++;
                 raceRoom.hostLock = false;
-                console.log(`[WS Disconnect] No human players left in race ${raceId}, host cleared (version ${raceRoom.hostVersion})`);
+                console.log(`[WS Disconnect] No players left in race ${raceId}, host cleared (version ${raceRoom.hostVersion})`);
                 
                 // Reject all pending rejoin requests if no host available
                 for (const [pId, request] of raceRoom.pendingRejoinRequests.entries()) {
@@ -5038,7 +5045,7 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
                 code: "INSUFFICIENT_PLAYERS"
               });
 
-              console.log(`[WS Disconnect] Countdown cancelled for race ${raceId} - only ${connectedHumansCount} human player(s) remaining (need ${requiredHumans})`);
+              console.log(`[WS Disconnect] Countdown cancelled for race ${raceId} - only ${connectedHumansCount} player(s) remaining (need ${requiredHumans})`);
             } else {
               const latest = await storage.getRace(raceId);
               if (latest) {

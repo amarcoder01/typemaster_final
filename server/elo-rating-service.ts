@@ -94,27 +94,27 @@ export class EloRatingService {
     
     processedRaces.set(raceId, Date.now());
     
-    const humanResults = results.filter(r => !r.isBot && r.userId);
+    const playerResults = results.filter(r => !r.isBot && r.userId);
     
-    if (humanResults.length < 2) {
-      console.log("[ELO] Not enough human players to calculate rating changes");
+    if (playerResults.length < 2) {
+      console.log("[ELO] Not enough players to calculate rating changes");
       return [];
     }
 
     const ratingChanges: RatingChange[] = [];
     const playerRatings: Map<string, UserRating> = new Map();
     
-    for (const result of humanResults) {
+    for (const result of playerResults) {
       if (result.userId) {
         const rating = await storage.getOrCreateUserRating(result.userId);
         playerRatings.set(result.userId, rating);
       }
     }
 
-    const totalPlayers = humanResults.length;
+    const totalPlayers = playerResults.length;
     const avgRating = Array.from(playerRatings.values()).reduce((sum, r) => sum + r.rating, 0) / totalPlayers;
 
-    for (const result of humanResults) {
+    for (const result of playerResults) {
       if (!result.userId) continue;
       
       const playerRating = playerRatings.get(result.userId);

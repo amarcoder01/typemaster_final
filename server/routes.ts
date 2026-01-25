@@ -2963,176 +2963,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Automatically assign random number of opponents for natural feel
       const effectiveBotCount = getRandomBotCount();
 
-      const activeRaces = await storage.getActiveRaces();
-
-      // Find a waiting public race with matching type/duration and available slots
-      let availableRace = null;
-      for (const r of activeRaces) {
-        if (r.status === "waiting" && r.isPrivate === 0) {
-          // For timed races, match by duration
-          if (effectiveRaceType === "timed") {
-            if (r.raceType !== "timed" || r.timeLimitSeconds !== effectiveTimeLimit) {
-              continue;
-            }
-          } else {
-            // For standard races, don't match with timed races
-            if (r.raceType === "timed") {
-              continue;
-            }
-          }
-
-          const participants = await storage.getRaceParticipants(r.id);
-          // Count only human participants (bots can be replaced)
-          const humanCount = participants.filter(p => p.isBot !== 1).length;
-          if (humanCount < r.maxPlayers) {
-            availableRace = r;
-            break;
-          }
-        }
-      }
-
+      // SECURITY: Quick match ALWAYS creates a new race where the user becomes the host
+      // No automatic joining into existing races - joining requires a room code
+      // This enforces maxHumans=1 by default (only the host/creator is allowed)
+      
       let race;
       let paragraphContent: string;
       let paragraphId: number | undefined;
-      let isNewRace = false;
 
-      if (availableRace) {
-        race = availableRace;
+      // For timed races, generate more content
+      if (effectiveRaceType === "timed") {
+        const paragraphs: string[] = [];
+        // Generate enough content for the duration (estimate ~60 WPM, 5 chars/word)
+        const estimatedCharsNeeded = Math.ceil((effectiveTimeLimit / 60) * 60 * 5 * 2);
+        let totalChars = 0;
 
-        // Joining existing race
-        console.log(`[Quick Match] Joining existing race ${race.id}...`);
-        const existingParticipants = await storage.getRaceParticipants(race.id);
-        console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants`);
-
-        // Fix for legacy races: If existing race has no bots, add them now
-        const existingBots = existingParticipants.filter(p => p.isBot === 1);
-        if (existingBots.length === 0) {
-          console.log(`[Quick Match] Existing race ${race.id} has no bots, adding opponents...`);
-          try {
-            const addedBots = await botService.addBotsToRace(race.id, effectiveBotCount);
-            console.log(`[Quick Match] Added ${addedBots.length} bots to existing race ${race.id}`);
-          } catch (botError: any) {
-            console.error(`[Quick Match] Failed to add bots to existing race ${race.id}:`, botError);
-          }
-        }
-      } else {
-        isNewRace = true;
-        // For timed races, generate more content
-        if (effectiveRaceType === "timed") {
-          const paragraphs: string[] = [];
-          // Generate enough content for the duration (estimate ~60 WPM, 5 chars/word)
-          const estimatedCharsNeeded = Math.ceil((effectiveTimeLimit / 60) * 60 * 5 * 2);
-          let totalChars = 0;
-
-          while (totalChars < estimatedCharsNeeded) {
-            const para =
-              (await storage.getRandomParagraph("en", "quotes")) ||
-              (await storage.getRandomParagraph("en", "general"));
-            if (para) {
-              paragraphs.push(para.content);
-              totalChars += para.content.length;
-            } else {
-              break;
-            }
-          }
-          paragraphContent = paragraphs.join(" ");
-        } else {
-          const paragraph =
+        while (totalChars < estimatedCharsNeeded) {
+          const para =
             (await storage.getRandomParagraph("en", "quotes")) ||
             (await storage.getRandomParagraph("en", "general"));
-          if (!paragraph) {
-            return res.status(500).json({ message: "No paragraph available" });
+          if (para) {
+            paragraphs.push(para.content);
+            totalChars += para.content.length;
+          } else {
+            break;
           }
-          paragraphContent = paragraph.content;
-          paragraphId = paragraph.id;
         }
-
-        if (!paragraphContent) {
+        paragraphContent = paragraphs.join(" ");
+      } else {
+        const paragraph =
+          (await storage.getRandomParagraph("en", "quotes")) ||
+          (await storage.getRandomParagraph("en", "general"));
+        if (!paragraph) {
           return res.status(500).json({ message: "No paragraph available" });
         }
-
-        race = await createRaceWithRetry({
-          status: "waiting",
-          raceType: effectiveRaceType,
-          timeLimitSeconds: effectiveRaceType === "timed" ? effectiveTimeLimit : null,
-          paragraphId,
-          paragraphContent,
-          maxPlayers: 8, // Allow up to 8 players, bots will be replaced when humans join
-          isPrivate: 0,
-        });
-
-        console.log(`[Quick Match] Creating new race ${race.id}...`);
+        paragraphContent = paragraph.content;
+        paragraphId = paragraph.id;
       }
 
-      const participants = await storage.getRaceParticipants(race.id);
-      let participant = participants.find(p => {
-        if (user) {
-          return p.userId === user.id;
-        } else {
-          return p.guestName === guestId;
-        }
+      if (!paragraphContent) {
+        return res.status(500).json({ message: "No paragraph available" });
+      }
+
+      race = await createRaceWithRetry({
+        status: "waiting",
+        raceType: effectiveRaceType,
+        timeLimitSeconds: effectiveRaceType === "timed" ? effectiveTimeLimit : null,
+        paragraphId,
+        paragraphContent,
+        maxPlayers: 8, // Allow up to 8 total participants (host + others)
+        maxHumans: 1,  // Only the host (creator) is allowed by default
+        isPrivate: 0,
       });
 
-      if (!participant) {
-        const inactive = await storage.findInactiveParticipant(race.id, user?.id, guestId);
+      console.log(`[Quick Match] Creating new race ${race.id} (maxHumans=1)...`);
 
-        if (inactive) {
-          participant = await storage.reactivateRaceParticipant(inactive.id);
-        } else {
-          // Check if race is full
-          if (participants.length >= race.maxPlayers) {
-            // Try to replace a bot with the human player
-            const botToReplace = participants.find(p => p.isBot === 1);
-            if (botToReplace) {
-              // Remove the bot to make room for the human
-              await storage.deleteRaceParticipant(botToReplace.id);
-              console.log(`[Quick Match] Replaced bot ${botToReplace.username} with human ${username}`);
-            } else {
-              return res.status(400).json({ message: "Race is full" });
-            }
-          }
+      // Create the host participant (this is always a new race, so no search needed)
+      const participant = await storage.createRaceParticipant({
+        raceId: race.id,
+        userId: user?.id,
+        guestName: user ? undefined : guestId,
+        username,
+        avatarColor,
+        progress: 0,
+        wpm: 0,
+        accuracy: 0,
+        errors: 0,
+        isFinished: 0,
+        isBot: 0,
+      });
 
-          participant = await storage.createRaceParticipant({
-            raceId: race.id,
-            userId: user?.id,
-            guestName: user ? undefined : guestId,
-            username,
-            avatarColor,
-            progress: 0,
-            wpm: 0,
-            accuracy: 0,
-            errors: 0,
-            isFinished: 0,
-            isBot: 0,
-          });
-          
-          // Post-creation check for race condition: verify we didn't exceed maxPlayers
-          const postCreateParticipants = await storage.getRaceParticipants(race.id);
-          const humanCount = postCreateParticipants.filter(p => p.isBot !== 1).length;
-          if (humanCount > race.maxPlayers) {
-            // Too many humans joined simultaneously - remove this participant
-            await storage.deleteRaceParticipant(participant.id);
-            console.log(`[Quick Match] Race condition detected - removed participant ${username} (over max)`);
-            return res.status(400).json({ message: "Race is full", code: "ROOM_FULL" });
-          }
-        }
-      }
+      // Set the creator as the race owner (host) - this is immutable
+      await storage.updateRaceCreator(race.id, participant.id);
+      race = { ...race, creatorParticipantId: participant.id };
+      console.log(`[Quick Match] Set creator ${participant.username} (${participant.id}) as host for race ${race.id}`);
 
-      // If this is a new race, set the creator as the race owner (they will always be the host)
-      // and add bots AFTER setting the creator to ensure correct host assignment
-      if (isNewRace) {
-        await storage.updateRaceCreator(race.id, participant.id);
-        race = { ...race, creatorParticipantId: participant.id };
-        console.log(`[Quick Match] Set creator ${participant.username} (${participant.id}) for race ${race.id}`);
-
-        // Add opponents to race after setting the creator
-        console.log(`[Quick Match] Adding ${effectiveBotCount} opponents to race ${race.id}...`);
-        try {
-          const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
-          console.log(`[Quick Match] Added ${addedOpponents.length} opponents to race ${race.id}`);
-        } catch (opponentError: any) {
-          console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
-        }
+      // Add bot opponents after setting the creator
+      console.log(`[Quick Match] Adding ${effectiveBotCount} bot opponents to race ${race.id}...`);
+      try {
+        const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
+        console.log(`[Quick Match] Added ${addedOpponents.length} bot opponents to race ${race.id}`);
+      } catch (opponentError: any) {
+        console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
       }
 
       // Update race cache with all participants (including bots)
@@ -3289,6 +3201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paragraphId,
         paragraphContent,
         maxPlayers: maxPlayers || 4,
+        maxHumans: 1, // Only the host (creator) is allowed by default
         isPrivate: isPrivate ? 1 : 0,
       });
 
@@ -3422,24 +3335,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!participant) {
+        // Room code joins allow unlimited players - no maxHumans restriction
+        // The maxHumans limit only prevents auto-joining (quick match), not explicit room code joins
+
         const inactive = await storage.findInactiveParticipant(race.id, user?.id, guestId);
 
         if (inactive) {
           participant = await storage.reactivateRaceParticipant(inactive.id);
         } else {
-          // Check if race is full
+          // Check if race is full (total players)
           let removedBotId: number | null = null;
           if (participants.length >= race.maxPlayers) {
-            // If there are bots, remove one to make room for the human player
+            // If there are bots, remove one to make room
             const botParticipants = participants.filter(p => p.isBot === 1);
             if (botParticipants.length > 0) {
-              // Remove a bot to make room for the human
+              // Remove a bot to make room
               const botToRemove = botParticipants[botParticipants.length - 1];
               await storage.deleteRaceParticipant(botToRemove.id);
               removedBotId = botToRemove.id;
-              console.log(`[Join Room] Removed bot ${botToRemove.username} to make room for human player`);
+              console.log(`[Join Room] Removed bot ${botToRemove.username} to make room`);
             } else {
-              // No bots to remove - race is truly full with humans
+              // No bots to remove - race is full
               return res.status(400).json({ message: "Race is full" });
             }
           }
@@ -3463,15 +3379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { raceCache } = await import("./race-cache");
           const updatedParticipants = await storage.getRaceParticipants(race.id);
           
-          // Post-creation check for race condition: verify we didn't exceed maxPlayers
-          const humanParticipants = updatedParticipants.filter(p => p.isBot !== 1);
-          if (humanParticipants.length > race.maxPlayers) {
-            // Too many humans joined simultaneously - remove this participant
-            await storage.deleteRaceParticipant(participant.id);
-            console.log(`[Join Room] Race condition detected - removed participant ${username} (over max)`);
-            return res.status(400).json({ message: "Race is full", code: "ROOM_FULL" });
-          }
-          
+          // Room code joins are unlimited - no maxHumans check needed
           raceCache.updateParticipants(race.id, updatedParticipants, race);
           console.log(`[Join Room] Updated race cache with new participant ${username} (${participant.id})`);
 

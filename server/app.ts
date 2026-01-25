@@ -116,6 +116,11 @@ export default async function runApp(
       ALTER TABLE race_participants
       ADD COLUMN IF NOT EXISTS join_token varchar(64);
     `));
+    // Add max_humans column to races table (default 1 = host only)
+    await db.execute(sql.raw(`
+      ALTER TABLE races
+      ADD COLUMN IF NOT EXISTS max_humans integer NOT NULL DEFAULT 1;
+    `));
   } catch (e: any) {
     log(`DB schema check failed: ${e?.message || e}`, "db");
   }

@@ -1617,7 +1617,7 @@ export default function RacePage() {
         }
         break;
       case "participant_removed":
-        // A participant (usually a bot) was removed to make room for a human
+        // A participant (usually a bot) was removed to make room
         setParticipants(message.participants);
         if (message.hostParticipantId) {
           setHostParticipantId(message.hostParticipantId);
@@ -2705,15 +2705,14 @@ export default function RacePage() {
                 )}
 
                 {/* Show Start Race button only for the host, or show waiting message for others */}
-                {/* Minimum requirements: 1 human + bots OR 2+ humans (no bots) */}
                 {(() => {
                   const botCount = participants.filter((p: any) => p.isBot === 1).length;
-                  const humanCount = participants.filter((p: any) => p.isBot !== 1).length;
+                  const playerCount = participants.filter((p: any) => p.isBot !== 1).length;
                   const hasBots = botCount > 0;
-                  // With bots: 1 human can start. Without bots: 2 humans required.
-                  const minHumansNeeded = hasBots ? 1 : 2;
-                  const canStart = humanCount >= minHumansNeeded;
-                  const humansNeeded = minHumansNeeded - humanCount;
+                  // With bots: 1 player can start. Without bots: 2 players required.
+                  const minPlayersNeeded = hasBots ? 1 : 2;
+                  const canStart = playerCount >= minPlayersNeeded;
+                  const playersNeeded = minPlayersNeeded - playerCount;
 
                   return (!hostParticipantId || myParticipant?.id === hostParticipantId) ? (
                     <div className="space-y-2">
@@ -2723,7 +2722,7 @@ export default function RacePage() {
                           <span>
                             {hasBots
                               ? "Waiting for you to connect..."
-                              : `Waiting for ${humansNeeded} more player${humansNeeded > 1 ? 's' : ''} to join...`}
+                              : `Waiting for ${playersNeeded} more player${playersNeeded > 1 ? 's' : ''} to join...`}
                           </span>
                         </div>
                       )}
@@ -2747,7 +2746,7 @@ export default function RacePage() {
                               <>
                                 <Play className="h-4 w-4 mr-2" />
                                 {!canStart
-                                  ? (hasBots ? 'Waiting...' : `Need ${humansNeeded} more player${humansNeeded > 1 ? 's' : ''}`)
+                                  ? (hasBots ? 'Waiting...' : `Need ${playersNeeded} more player${playersNeeded > 1 ? 's' : ''}`)
                                   : 'Start Race'}
                               </>
                             )}

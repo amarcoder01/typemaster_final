@@ -443,6 +443,7 @@ export const races = pgTable("races", {
   paragraphId: integer("paragraph_id").references(() => typingParagraphs.id),
   paragraphContent: text("paragraph_content").notNull(),
   maxPlayers: integer("max_players").notNull().default(4),
+  maxHumans: integer("max_humans").notNull().default(1), // Maximum non-bot participants allowed (default 1 = host only)
   isPrivate: integer("is_private").notNull().default(0),
   finishCounter: integer("finish_counter").notNull().default(0),
   creatorParticipantId: integer("creator_participant_id"), // The participant ID of the race creator (always becomes host)
