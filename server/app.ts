@@ -9,6 +9,8 @@ import { metricsCollector } from "./metrics";
 import { registerShutdownHandlers } from "./graceful-shutdown";
 import { initializeRedis, REDIS_ENABLED } from "./redis-client";
 import { initializeJobQueues } from "./job-queue";
+import { db } from "./storage";
+import { sql } from "drizzle-orm";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -107,6 +109,16 @@ export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
   metricsCollector.initialize();
+
+  // Ensure critical DB columns exist for multiplayer (backward-compatible).
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE race_participants
+      ADD COLUMN IF NOT EXISTS join_token varchar(64);
+    `));
+  } catch (e: any) {
+    log(`DB schema check failed: ${e?.message || e}`, "db");
+  }
 
   // Initialize Redis for distributed state (if enabled)
   if (REDIS_ENABLED) {

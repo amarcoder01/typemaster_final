@@ -3647,26 +3647,29 @@ export class DatabaseStorage implements IStorage {
       }
       
       // Check for existing active participant within the transaction
-      const existingConditions = [
-        eq(raceParticipants.raceId, participant.raceId),
-        eq(raceParticipants.isActive, 1)
-      ];
-      
-      if (participant.userId) {
-        existingConditions.push(eq(raceParticipants.userId, participant.userId));
-      } else if (participant.guestName) {
-        existingConditions.push(eq(raceParticipants.guestName, participant.guestName));
-      }
-      
-      const existing = await tx
-        .select()
-        .from(raceParticipants)
-        .where(and(...existingConditions))
-        .limit(1);
-      
-      if (existing.length > 0) {
-        console.log(`[Storage] Participant already exists in race ${participant.raceId}, returning existing`);
-        return existing[0];
+      // Only de-dupe when we have a stable identity (userId or guestName).
+      if (participant.userId || participant.guestName) {
+        const existingConditions = [
+          eq(raceParticipants.raceId, participant.raceId),
+          eq(raceParticipants.isActive, 1)
+        ];
+        
+        if (participant.userId) {
+          existingConditions.push(eq(raceParticipants.userId, participant.userId));
+        } else if (participant.guestName) {
+          existingConditions.push(eq(raceParticipants.guestName, participant.guestName));
+        }
+        
+        const existing = await tx
+          .select()
+          .from(raceParticipants)
+          .where(and(...existingConditions))
+          .limit(1);
+        
+        if (existing.length > 0) {
+          console.log(`[Storage] Participant already exists in race ${participant.raceId}, returning existing`);
+          return existing[0];
+        }
       }
       
       // Check max players within the same transaction

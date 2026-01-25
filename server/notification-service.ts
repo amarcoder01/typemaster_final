@@ -150,12 +150,12 @@ export class NotificationService {
 
         sent++;
       } catch (error: any) {
-        console.error(`[Notifications] Failed to send to subscription ${subscription.id}:`, error);
-        
-        // If subscription expired or invalid, remove it
-        if (error.statusCode === 410 || error.statusCode === 404) {
+        // If subscription expired or invalid, remove it (common; don't spam error logs)
+        if (error?.statusCode === 410 || error?.statusCode === 404) {
           await this.storage.deletePushSubscription(subscription.id);
           console.log(`[Notifications] Removed invalid subscription ${subscription.id}`);
+        } else {
+          console.error(`[Notifications] Failed to send to subscription ${subscription.id}:`, error);
         }
 
         // Record failure

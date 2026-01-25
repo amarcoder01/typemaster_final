@@ -296,6 +296,14 @@ class RaceWebSocketServer {
     const key = this.getConnectionKey(userId, guestId, participantId);
     const now = Date.now();
     
+    // CRITICAL: If this WebSocket already has a different connection key, unregister the old one first
+    // This handles the case where a connection upgrades from participant:123 to user:456
+    const oldKey = (ws as any).connectionKey as string | undefined;
+    if (oldKey && oldKey !== key) {
+      console.log(`[WS Connection Registry] Switching connection key from ${oldKey} to ${key}`);
+      this.unregisterConnectionByKey(oldKey, ws);
+    }
+    
     // Register in distributed registry first (handles cross-server termination)
     if (REDIS_ENABLED) {
       await registerConnectionDistributed(key, ws, raceId, participantId);
@@ -369,6 +377,30 @@ class RaceWebSocketServer {
     }
     
     console.log(`[WS Connection Registry] Unregistered connection for ${key} (remaining: ${filtered.length})`);
+  }
+
+  /**
+   * Unregister a connection by key (used when switching connection keys)
+   */
+  private unregisterConnectionByKey(key: string, ws: WebSocket): void {
+    const existing = this.connectionRegistry.get(key);
+    if (!existing) return;
+    
+    const filtered = existing.filter(e => e.ws !== ws);
+    if (filtered.length === 0) {
+      this.connectionRegistry.delete(key);
+    } else {
+      this.connectionRegistry.set(key, filtered);
+    }
+    
+    // Also unregister from distributed registry
+    if (REDIS_ENABLED) {
+      unregisterConnectionDistributed(key, ws).catch(err => {
+        console.error('[WS Connection Registry] Distributed unregistration by key error:', err);
+      });
+    }
+    
+    console.log(`[WS Connection Registry] Unregistered old key ${key} (remaining: ${filtered.length})`);
   }
 
   /**
@@ -3308,13 +3340,16 @@ class RaceWebSocketServer {
     let cachedRace = raceCache.getRace(raceId);
     let race = cachedRace?.race || await storage.getRace(raceId);
     
+    // Check if participant is already finished (shouldn't be marked DNF)
+    const currentParticipants = await storage.getRaceParticipants(raceId);
+    const participant = currentParticipants.find(p => p.id === participantId);
+    const isAlreadyFinished = participant?.isFinished === 1;
+    
     // If leaving during an active race (racing or countdown), mark as DNF instead of deleting
-    if (race && (race.status === "racing" || race.status === "countdown" || isRacing)) {
+    // But only if the participant hasn't already finished their race
+    if (race && !isAlreadyFinished && (race.status === "racing" || race.status === "countdown" || isRacing)) {
       console.log(`[WS Leave] Participant ${participantId} leaving active race ${raceId} - marking as DNF`);
       
-      // Get participant info before updating
-      const currentParticipants = await storage.getRaceParticipants(raceId);
-      const participant = currentParticipants.find(p => p.id === participantId);
       const username = participant?.username || "Unknown";
 
       const cachedParticipant = cachedRace?.participants?.find(p => p.id === participantId);
@@ -3367,11 +3402,8 @@ class RaceWebSocketServer {
         });
       }
     } else {
-      // For waiting or finished races, just delete the participant
-      // Get username before deleting for notifications
-      const participants = await storage.getRaceParticipants(raceId);
-      const leavingParticipant = participants.find(p => p.id === participantId);
-      const leavingUsername = leavingParticipant?.username;
+      // For waiting or finished races (or already finished participants), just delete the participant
+      const leavingUsername = participant?.username;
       
       await storage.deleteRaceParticipant(participantId);
       raceCache.removeParticipant(raceId, participantId);
@@ -3380,7 +3412,7 @@ class RaceWebSocketServer {
         this.broadcastToRace(raceId, {
           type: "participant_left",
           participantId,
-          username: leavingUsername, // Include username for notifications
+          username: leavingUsername,
         });
       }
     }
@@ -3535,7 +3567,9 @@ class RaceWebSocketServer {
         return;
       }
 
-      const additionalParagraph = await storage.getRandomParagraph("en", "quote");
+      const additionalParagraph =
+        (await storage.getRandomParagraph("en", "quotes")) ||
+        (await storage.getRandomParagraph("en", "general"));
       if (!additionalParagraph) {
         ws.send(JSON.stringify({ type: "error", message: "No additional content available" }));
         return;
@@ -3660,7 +3694,7 @@ class RaceWebSocketServer {
     type: z.literal('lock_room'),
     raceId: z.number().int().positive(),
     participantId: z.number().int().positive(),
-    isLocked: z.boolean().optional(),
+    locked: z.boolean(),
   });
 
   private static readonly rematchSchema = z.object({
@@ -3936,11 +3970,11 @@ class RaceWebSocketServer {
   private botChatCooldowns: Map<number, number> = new Map(); // per-bot cooldowns
   private raceBurstWindow: Map<number, { count: number; expiresAt: number }> = new Map();
   private spontaneousChatTimers: Map<number, NodeJS.Timeout> = new Map(); // raceId -> timer
-  private readonly BOT_CHAT_COOLDOWN_MS = 6000; // 6 seconds per bot
-  private readonly RACE_BURST_LIMIT = 5; // max 5 bot messages per window
-  private readonly RACE_BURST_WINDOW_MS = 8000; // 8 second window
-  private readonly SPONTANEOUS_CHAT_MIN_DELAY_MS = 8000; // Minimum 8 seconds between spontaneous messages
-  private readonly SPONTANEOUS_CHAT_MAX_DELAY_MS = 25000; // Maximum 25 seconds between spontaneous messages
+  private readonly BOT_CHAT_COOLDOWN_MS = 4000; // 4 seconds per bot (faster, more natural)
+  private readonly RACE_BURST_LIMIT = 6; // max 6 bot messages per window
+  private readonly RACE_BURST_WINDOW_MS = 10000; // 10 second window
+  private readonly SPONTANEOUS_CHAT_MIN_DELAY_MS = 4000; // Minimum 4 seconds between spontaneous messages
+  private readonly SPONTANEOUS_CHAT_MAX_DELAY_MS = 12000; // Maximum 12 seconds between spontaneous messages
 
   // Start spontaneous bot chat for a race (bots initiate messages without human prompting)
   private startSpontaneousBotChat(raceId: number) {
@@ -3969,8 +4003,8 @@ class RaceWebSocketServer {
       this.spontaneousChatTimers.set(raceId, timer);
     };
 
-    // Start with a shorter initial delay (3-8 seconds)
-    const initialDelay = 3000 + Math.random() * 5000;
+    // Start with a quick initial delay (1-3 seconds) for natural feel
+    const initialDelay = 1000 + Math.random() * 2000;
     const timer = setTimeout(async () => {
       await this.sendSpontaneousBotMessage(raceId);
       scheduleNext();

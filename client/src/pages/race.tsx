@@ -333,6 +333,7 @@ export default function RacePage() {
   const myParticipantRef = useRef<Participant | null>(null);
   const [hostParticipantId, setHostParticipantId] = useState<number | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null); // Ref for cleanup to access current WS
   const [wsConnected, setWsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -369,6 +370,9 @@ export default function RacePage() {
   const hasJoinedRef = useRef(false);
   const lastJoinedRaceIdRef = useRef<number | null>(null);
   const [hasJoinedRace, setHasJoinedRace] = useState(false); // State for UI reactivity
+  const joinRetryAttemptsRef = useRef(0);
+  const maxJoinRetryAttempts = 3;
+  const joinRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const extensionRequestedRef = useRef(false);
   const extensionThreshold = 0.75; // Request extension earlier to ensure content is available
   const timedFinishSentRef = useRef(false);
@@ -442,9 +446,15 @@ export default function RacePage() {
   }, [myParticipant]);
 
   useEffect(() => {
+    wsRef.current = ws;
+  }, [ws]);
+
+  useEffect(() => {
     if (!params?.id) return;
 
-    // Reset all state for new race
+    // Reset all state for new race - CRITICAL: Reset race first to prevent stale status
+    // Note: Don't set raceRef.current = null here as cleanup needs the old value
+    setRace(null);
     finishBannerDismissedRef.current = false;
     raceFinishedReceivedRef.current = false;
     setShowFinishBanner(false);
@@ -454,6 +464,11 @@ export default function RacePage() {
     hasJoinedRef.current = false;
     lastJoinedRaceIdRef.current = null;
     setHasJoinedRace(false);
+    joinRetryAttemptsRef.current = 0;
+    if (joinRetryTimeoutRef.current) {
+      clearTimeout(joinRetryTimeoutRef.current);
+      joinRetryTimeoutRef.current = null;
+    }
     setCurrentIndex(0);
     setErrors(0);
     setCharStates([]);
@@ -563,7 +578,8 @@ export default function RacePage() {
     }
 
     fetchRaceData();
-    connectWebSocket();
+    // Note: connectWebSocket() is now called in a separate useEffect after race data loads
+    // This prevents connection issues when race doesn't exist or participant isn't ready
 
     return () => {
       // Phase 7: Notify other tabs we're closing
@@ -582,9 +598,11 @@ export default function RacePage() {
       }
       
       // Send leave message before closing WebSocket
-      if (ws && ws.readyState === WebSocket.OPEN && myParticipantRef.current && raceRef.current) {
+      // Use wsRef.current to get the current WebSocket (not stale closure value)
+      const currentWs = wsRef.current;
+      if (currentWs && currentWs.readyState === WebSocket.OPEN && myParticipantRef.current && raceRef.current) {
         try {
-          ws.send(JSON.stringify({
+          currentWs.send(JSON.stringify({
             type: "leave",
             raceId: raceRef.current.id,
             participantId: myParticipantRef.current.id,
@@ -597,8 +615,8 @@ export default function RacePage() {
           console.error("[Race] Failed to send leave message:", e);
         }
       }
-      if (ws) {
-        ws.close();
+      if (currentWs) {
+        currentWs.close(1000, "Navigating away");
       }
     };
   }, [params?.id]);
@@ -627,6 +645,15 @@ export default function RacePage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
+  // Connect WebSocket only after race data is loaded
+  // This prevents connection issues when race doesn't exist or is invalid
+  useEffect(() => {
+    if (race && !ws && !errorState) {
+      console.log(`[Race] Race ${race.id} loaded, connecting WebSocket`);
+      connectWebSocket();
+    }
+  }, [race, ws, errorState]);
+
   // Periodic sync in waiting room - refresh participants every 15 seconds
   useEffect(() => {
     if (race?.status === "waiting" && !isRefreshing) {
@@ -650,9 +677,18 @@ export default function RacePage() {
         return;
       }
 
+      // CRITICAL: Verify joinToken exists before attempting to join
+      // If missing, the server will reject with "Token required" error
+      if (!myParticipant.joinToken) {
+        console.warn(`[Race] Missing joinToken for participant ${myParticipant.id}, re-fetching race data`);
+        fetchRaceData();
+        return;
+      }
+
       hasJoinedRef.current = true;
       lastJoinedRaceIdRef.current = race.id;
-      setHasJoinedRace(true); // Update state for UI reactivity
+      // NOTE: setHasJoinedRace(true) is now called when we receive the "joined" confirmation
+      // This prevents race conditions where UI enables actions before server confirms join
 
       console.log(`[Race] Joining race ${race.id} as participant ${myParticipant.id} (${myParticipant.username})`);
 
@@ -747,7 +783,9 @@ export default function RacePage() {
           // This ensures the UI shows results even if server doesn't respond
           setTimeout(() => {
             // Only show local results if we haven't received server results yet
-            if (!finishBannerDismissedRef.current) {
+            // AND the banner hasn't been dismissed AND banner isn't already showing
+            if (!finishBannerDismissedRef.current && !raceFinishedReceivedRef.current && !showFinishBanner) {
+              console.log("[Race Fallback] Server didn't respond in time, showing local results");
 
               setFinishBannerData({
                 position: null, // Unknown without server data
@@ -769,7 +807,7 @@ export default function RacePage() {
 
               setShowFinishBanner(true);
             }
-          }, 1000); // Wait 1 second for server response before showing local results
+          }, 2000); // Wait 2 seconds for server response before showing local results
         }
       }
     }, 100);
@@ -1054,7 +1092,12 @@ export default function RacePage() {
     setIsRefreshing(true);
 
     try {
-      const response = await fetch(`/api/races/${params?.id}`);
+      // Include guestId for guests so server can return their joinToken
+      const guestId = !user ? localStorage.getItem("multiplayer_guest_id") : null;
+      const url = guestId 
+        ? `/api/races/${params?.id}?guestId=${encodeURIComponent(guestId)}`
+        : `/api/races/${params?.id}`;
+      const response = await fetch(url);
 
       if (response.ok) {
         const data = await response.json();
@@ -1063,24 +1106,101 @@ export default function RacePage() {
         setErrorState(null);
 
         // Get current myParticipant from ref (state may be stale in async callback)
-        const currentMyParticipant = myParticipantRef.current;
+        // CRITICAL: Also check localStorage directly as ref may not be updated yet
+        let currentMyParticipant = myParticipantRef.current;
 
-        if (currentMyParticipant) {
+        const raceIdKey = `race_${data.race.id}_participant`;
+        const roomCodeKey = data.race.roomCode ? `race_${data.race.roomCode}_participant` : null;
+        const paramKey = params?.id ? `race_${params.id}_participant` : null;
+        
+        // Fallback to localStorage if ref is stale (race condition on initial load)
+        if (!currentMyParticipant) {
+          const stored = localStorage.getItem(raceIdKey) || 
+            (roomCodeKey ? localStorage.getItem(roomCodeKey) : null) ||
+            (paramKey ? localStorage.getItem(paramKey) : null);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (parsed?.raceId === data.race.id || !parsed?.raceId) {
+                currentMyParticipant = parsed;
+                console.log(`[Race] Loaded participant from localStorage fallback:`, parsed.id);
+              }
+            } catch (e) {
+              console.warn("[Race] Failed to parse localStorage fallback:", e);
+            }
+          }
+        }
+
+        const persistParticipant = (p: any) => {
+          try {
+            localStorage.setItem(raceIdKey, JSON.stringify(p));
+            if (roomCodeKey) localStorage.setItem(roomCodeKey, JSON.stringify(p));
+            if (paramKey) localStorage.setItem(paramKey, JSON.stringify(p));
+          } catch (e) {
+            console.warn("[Race] Failed to persist participant:", e);
+          }
+        };
+
+        const clearParticipantKeys = () => {
+          try {
+            localStorage.removeItem(raceIdKey);
+            if (roomCodeKey) localStorage.removeItem(roomCodeKey);
+            if (paramKey) localStorage.removeItem(paramKey);
+          } catch (e) {
+            console.warn("[Race] Failed to clear participant keys:", e);
+          }
+        };
+
+        // If we loaded a stale participant (common with room-code URLs), clear it so we can recover
+        let effectiveMyParticipant = currentMyParticipant;
+        if (effectiveMyParticipant && effectiveMyParticipant.raceId !== data.race.id) {
+          console.log(
+            `[Race] Clearing stale participant ${effectiveMyParticipant.id} from race ${effectiveMyParticipant.raceId} (current race ${data.race.id})`,
+          );
+          clearParticipantKeys();
+          effectiveMyParticipant = null;
+          setMyParticipant(null);
+        }
+
+        if (effectiveMyParticipant) {
           // Update existing participant data
-          const updatedParticipant = data.participants.find((p: Participant) => p.id === currentMyParticipant.id);
+          const updatedParticipant = data.participants.find((p: Participant) => p.id === effectiveMyParticipant.id);
           if (updatedParticipant) {
-            setMyParticipant({
+            const merged = {
               ...updatedParticipant,
-              joinToken: currentMyParticipant.joinToken ?? updatedParticipant.joinToken,
-            });
+              joinToken: effectiveMyParticipant.joinToken ?? updatedParticipant.joinToken,
+            };
+            setMyParticipant(merged);
+            persistParticipant(merged);
           }
         } else if (user) {
           // If no participant set but user is logged in, try to find their participant
           const userParticipant = data.participants.find((p: Participant) => p.userId === user.id);
           if (userParticipant) {
             setMyParticipant(userParticipant);
-            // Also save to localStorage for future reference
-            localStorage.setItem(`race_${data.race.id}_participant`, JSON.stringify(userParticipant));
+            persistParticipant(userParticipant);
+          }
+        }
+
+        // If still no participant, try restore from localStorage via race id / room code / param keys
+        if (!myParticipantRef.current) {
+          const stored =
+            localStorage.getItem(raceIdKey) ||
+            (roomCodeKey ? localStorage.getItem(roomCodeKey) : null) ||
+            (paramKey ? localStorage.getItem(paramKey) : null);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (!parsed?.raceId || parsed.raceId === data.race.id) {
+                const restored = { ...parsed, raceId: data.race.id };
+                setMyParticipant(restored);
+                persistParticipant(restored);
+              } else {
+                clearParticipantKeys();
+              }
+            } catch (e) {
+              clearParticipantKeys();
+            }
           }
         }
       } else if (response.status === 404) {
@@ -1182,9 +1302,11 @@ export default function RacePage() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/race`;
     const socket = new WebSocket(wsUrl);
+    const socketRaceKey = params?.id;
 
     socket.onopen = () => {
       setWs(socket);
+      wsRef.current = socket; // Also update ref immediately for cleanup to access
       setWsConnected(true);
       setIsReconnecting(false);
       reconnectAttempts.current = 0;
@@ -1202,6 +1324,8 @@ export default function RacePage() {
     };
 
     socket.onmessage = (event) => {
+      // Ignore messages from stale sockets (race changed / reconnect overlap)
+      if (socketRaceKey !== params?.id) return;
       const message = JSON.parse(event.data);
       handleWebSocketMessage(message);
     };
@@ -1213,8 +1337,14 @@ export default function RacePage() {
 
     socket.onclose = (event) => {
       setWsConnected(false);
-      setWs(null);
+      // Use ref to check if this socket is still the current one
+      // This avoids stale closure issues with the ws state variable
+      if (wsRef.current === socket) {
+        setWs(null);
+        wsRef.current = null;
+      }
       hasJoinedRef.current = false;
+      setHasJoinedRace(false); // Reset state to prevent UI from showing authenticated when not
 
       if (event.code !== 1000 && race?.status !== "finished") {
         attemptReconnect();
@@ -1256,8 +1386,22 @@ export default function RacePage() {
   }, []);
 
   function handleWebSocketMessage(message: any) {
+    // Filter out messages from different races to prevent state pollution
+    // Messages with raceId should match current race
+    if (message.raceId && raceRef.current && message.raceId !== raceRef.current.id) {
+      console.log(`[Race] Ignoring message for different race (got ${message.raceId}, current ${raceRef.current.id})`);
+      return;
+    }
+    
     switch (message.type) {
       case "joined":
+        // Server confirmed our join - NOW we're truly authenticated
+        setHasJoinedRace(true);
+        joinRetryAttemptsRef.current = 0; // Reset retry counter on successful join
+        if (joinRetryTimeoutRef.current) {
+          clearTimeout(joinRetryTimeoutRef.current);
+          joinRetryTimeoutRef.current = null;
+        }
         setRace(message.race);
         setParticipants(message.participants);
         if (message.hostParticipantId) {
@@ -1459,7 +1603,8 @@ export default function RacePage() {
       case "participant_left":
         setParticipants(prev => prev.filter(p => p.id !== message.participantId));
         // Add system message to chat (username may be included in message)
-        if (message.username) {
+        // Don't show toast for own leave (user already knows they left)
+        if (message.username && message.participantId !== myParticipantRef.current?.id) {
           toast.info(`${message.username} left the race`, { duration: 2000 });
           setChatMessages(prev => [...prev, {
             id: Date.now(),
@@ -1560,16 +1705,19 @@ export default function RacePage() {
             ? { ...p, isFinished: 1, finishPosition: 999 }
             : p
         ));
-        toast.info(`${message.username} left the race (DNF)`, { duration: 2000 });
-        // Add system message to chat
-        setChatMessages(prev => [...prev, {
-          id: Date.now(),
-          username: "System",
-          avatarColor: null,
-          message: `${message.username} left the race (DNF)`,
-          isSystem: true,
-          createdAt: new Date().toISOString(),
-        }]);
+        // Don't show toast for own DNF (user already knows they left)
+        if (message.participantId !== myParticipantRef.current?.id) {
+          toast.info(`${message.username} left the race (DNF)`, { duration: 2000 });
+          // Add system message to chat
+          setChatMessages(prev => [...prev, {
+            id: Date.now(),
+            username: "System",
+            avatarColor: null,
+            message: `${message.username} left the race (DNF)`,
+            isSystem: true,
+            createdAt: new Date().toISOString(),
+          }]);
+        }
         break;
       case "chat_message":
         const chatData = message.message || message;
@@ -1738,10 +1886,15 @@ export default function RacePage() {
           localStorage.removeItem(`race_${race.id}_participant`);
         }
         
+        // Close current WebSocket before redirecting to prevent "session taken over"
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, "Navigating to new race");
+        }
+        
         // Auto-redirect to the new race
         setTimeout(() => {
           setLocation(`/race/${message.newRaceId}`);
-        }, 1000);
+        }, 500);
         break;
       case "race_certificates":
         // Handle server-generated certificate verification IDs
@@ -1871,6 +2024,39 @@ export default function RacePage() {
               duration: 3000
             });
             break;
+          case "TOKEN_REQUIRED":
+          case "INVALID_TOKEN":
+            // Auth token issue - clear localStorage and retry with exponential backoff
+            console.warn(`[Race] Auth token error, attempt ${joinRetryAttemptsRef.current + 1}/${maxJoinRetryAttempts}`);
+            if (race?.id) {
+              localStorage.removeItem(`race_${race.id}_participant`);
+              if (race.roomCode) localStorage.removeItem(`race_${race.roomCode}_participant`);
+            }
+            if (params?.id) {
+              localStorage.removeItem(`race_${params.id}_participant`);
+            }
+            setMyParticipant(null);
+            hasJoinedRef.current = false;
+            setHasJoinedRace(false);
+            
+            if (joinRetryAttemptsRef.current < maxJoinRetryAttempts) {
+              joinRetryAttemptsRef.current++;
+              // Exponential backoff: 1s, 2s, 4s
+              const retryDelay = Math.pow(2, joinRetryAttemptsRef.current - 1) * 1000;
+              toast.error("Authentication failed", {
+                description: `Retrying in ${retryDelay / 1000}s...`,
+                duration: retryDelay
+              });
+              joinRetryTimeoutRef.current = setTimeout(() => {
+                fetchRaceData();
+              }, retryDelay);
+            } else {
+              toast.error("Authentication failed", {
+                description: "Please refresh the page or go back to the lobby",
+                duration: 5000
+              });
+            }
+            break;
           case "NOT_IN_RACE":
             toast.error("Not connected", {
               description: message.message || "You are not connected to this race",
@@ -1900,6 +2086,34 @@ export default function RacePage() {
             }, 2000);
             break;
           default:
+            // Check for auth-related error messages
+            const authErrorPatterns = ["not authenticated", "invalid participant", "join token", "authentication"];
+            const isAuthError = authErrorPatterns.some(pattern => 
+              message.message?.toLowerCase().includes(pattern)
+            );
+            
+            if (isAuthError) {
+              console.warn(`[Race] Auth error detected, attempt ${joinRetryAttemptsRef.current + 1}/${maxJoinRetryAttempts}`);
+              if (race?.id) {
+                localStorage.removeItem(`race_${race.id}_participant`);
+                if (race.roomCode) localStorage.removeItem(`race_${race.roomCode}_participant`);
+              }
+              if (params?.id) {
+                localStorage.removeItem(`race_${params.id}_participant`);
+              }
+              setMyParticipant(null);
+              hasJoinedRef.current = false;
+              setHasJoinedRace(false);
+              
+              if (joinRetryAttemptsRef.current < maxJoinRetryAttempts) {
+                joinRetryAttemptsRef.current++;
+                const retryDelay = Math.pow(2, joinRetryAttemptsRef.current - 1) * 1000;
+                joinRetryTimeoutRef.current = setTimeout(() => {
+                  fetchRaceData();
+                }, retryDelay);
+              }
+            }
+            
             if (message.message) {
               toast.error(message.message, { duration: 3000 });
             }
@@ -3547,7 +3761,13 @@ export default function RacePage() {
                       </div>
                     </div>
                     <Button
-                      onClick={() => setLocation(`/race/${rematchInfo.newRaceId}?code=${rematchInfo.roomCode}`)}
+                      onClick={() => {
+                        // Close current WebSocket before redirecting to prevent "session taken over"
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                          ws.close(1000, "Navigating to new race");
+                        }
+                        setLocation(`/race/${rematchInfo.newRaceId}?code=${rematchInfo.roomCode}`);
+                      }}
                       className="bg-green-600 hover:bg-green-700 w-full sm:w-auto text-sm"
                       size="sm"
                     >
@@ -3593,6 +3813,9 @@ export default function RacePage() {
                               // This ensures the race page can find the participant on load
                               if (data.participant) {
                                 localStorage.setItem(`race_${data.race.id}_participant`, JSON.stringify(data.participant));
+                                if (data.race?.roomCode) {
+                                  localStorage.setItem(`race_${data.race.roomCode}_participant`, JSON.stringify(data.participant));
+                                }
                                 console.log(`[Play Again] Saved new participant ${data.participant.id} for race ${data.race.id}`);
                               }
 
@@ -3607,10 +3830,15 @@ export default function RacePage() {
                                 createdBy: myParticipant?.username || "You",
                               });
 
+                              // Close current WebSocket before redirecting to prevent "session taken over"
+                              if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.close(1000, "Navigating to new race");
+                              }
+
                               // Auto-redirect to new race
                               setTimeout(() => {
                                 setLocation(`/race/${data.race.id}`);
-                              }, 500);
+                              }, 300);
                             } else {
                               const errorData = await response.json().catch(() => ({}));
                               toast.error(errorData.message || "Failed to create race");

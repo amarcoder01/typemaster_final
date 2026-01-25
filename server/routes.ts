@@ -2954,15 +2954,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const effectiveRaceType = raceType || "timed";
       const effectiveTimeLimit = timeLimitSeconds || 60;
 
-      const idempotencyKey = makeRequestIdempotencyKey(req, "races:quick-match", {
-        raceType: effectiveRaceType,
-        timeLimitSeconds: effectiveTimeLimit,
-        username,
-      });
-      const idempotencyCheck = await checkIdempotencyDistributed(idempotencyKey);
-      if (idempotencyCheck.isDuplicate && idempotencyCheck.cachedResponse) {
-        return res.json(idempotencyCheck.cachedResponse);
-      }
+      // NOTE: Idempotency disabled for quick match because:
+      // 1. Participant state can change (user leaves and rejoins)
+      // 2. Cached participant IDs become invalid when user leaves a race
+      // 3. Quick match is not a sensitive operation that requires deduplication
+      // Double-clicks are handled naturally by joining the same waiting race
 
       // Automatically assign random number of opponents for natural feel
       const effectiveBotCount = getRandomBotCount();
@@ -3007,6 +3003,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[Quick Match] Joining existing race ${race.id}...`);
         const existingParticipants = await storage.getRaceParticipants(race.id);
         console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants`);
+
+        // Fix for legacy races: If existing race has no bots, add them now
+        const existingBots = existingParticipants.filter(p => p.isBot === 1);
+        if (existingBots.length === 0) {
+          console.log(`[Quick Match] Existing race ${race.id} has no bots, adding opponents...`);
+          try {
+            const addedBots = await botService.addBotsToRace(race.id, effectiveBotCount);
+            console.log(`[Quick Match] Added ${addedBots.length} bots to existing race ${race.id}`);
+          } catch (botError: any) {
+            console.error(`[Quick Match] Failed to add bots to existing race ${race.id}:`, botError);
+          }
+        }
       } else {
         isNewRace = true;
         // For timed races, generate more content
@@ -3017,7 +3025,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let totalChars = 0;
 
           while (totalChars < estimatedCharsNeeded) {
-            const para = await storage.getRandomParagraph("en", "quote");
+            const para =
+              (await storage.getRandomParagraph("en", "quotes")) ||
+              (await storage.getRandomParagraph("en", "general"));
             if (para) {
               paragraphs.push(para.content);
               totalChars += para.content.length;
@@ -3027,7 +3037,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           paragraphContent = paragraphs.join(" ");
         } else {
-          const paragraph = await storage.getRandomParagraph("en", "quote");
+          const paragraph =
+            (await storage.getRandomParagraph("en", "quotes")) ||
+            (await storage.getRandomParagraph("en", "general"));
           if (!paragraph) {
             return res.status(500).json({ message: "No paragraph available" });
           }
@@ -3130,9 +3142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       raceCache.setRace(race, allParticipants);
       console.log(`[Quick Match] Updated cache with ${allParticipants.length} participants for race ${race.id}`);
 
-      const responseData = { race, participant };
-      await storeIdempotencyDistributed(idempotencyKey, responseData);
-      res.json(responseData);
+      res.json({ race, participant });
     } catch (error: any) {
       console.error("Quick match error:", error);
       res.status(500).json({ message: error.message });
@@ -3792,10 +3802,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const requesterUserId = req.user?.id;
+      // Get guest ID from query param (passed by client for guest identity)
+      const requesterGuestId = req.query.guestId as string | undefined;
+      
       const safeParticipants = raceData.participants.map((p: any) => {
+        // Include joinToken for the requesting user (logged in OR guest)
         if (requesterUserId && p.userId === requesterUserId) {
           return p;
         }
+        if (requesterGuestId && p.guestName === requesterGuestId) {
+          return p;
+        }
+        // Strip joinToken for other participants (security)
         const { joinToken, ...rest } = p;
         return rest;
       });
