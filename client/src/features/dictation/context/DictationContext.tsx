@@ -364,7 +364,7 @@ export function DictationProvider({ children }: DictationProviderProps) {
     const config = PRACTICE_MODES[mode];
     dispatch({ type: 'SET_PRACTICE_MODE', payload: mode });
     dispatch({ type: 'SET_DIFFICULTY', payload: config.defaultDifficulty });
-    dispatch({ type: 'SET_SPEED_LEVEL', payload: '0.8' });
+    dispatch({ type: 'SET_SPEED_LEVEL', payload: config.defaultSpeed });
     dispatch({ type: 'SET_SESSION_LENGTH', payload: 1 });
     dispatch({ type: 'SET_SESSION_PROGRESS', payload: 0 }); // Reset progress for new session
     dispatch({ type: 'SET_SESSION_COMPLETE', payload: false }); // Reset session complete flag
@@ -474,6 +474,9 @@ export function DictationProvider({ children }: DictationProviderProps) {
       maxChallengeStreak: state.sessionStats.maxChallengeStreak,
       completedInTime: state.sessionStats.completedInTime,
       timedOut: state.sessionStats.timedOut,
+      // Accumulate replays and hints from each test
+      totalReplays: state.sessionStats.totalReplays + replayCount,
+      totalHints: state.sessionStats.totalHints + (hintShown ? 1 : 0),
     };
     dispatch({ type: 'SET_SESSION_STATS', payload: newStats });
     

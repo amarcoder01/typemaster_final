@@ -445,6 +445,7 @@ export const races = pgTable("races", {
   maxPlayers: integer("max_players").notNull().default(4),
   isPrivate: integer("is_private").notNull().default(0),
   finishCounter: integer("finish_counter").notNull().default(0),
+  creatorParticipantId: integer("creator_participant_id"), // The participant ID of the race creator (always becomes host)
   startedAt: timestamp("started_at"),
   finishedAt: timestamp("finished_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -472,6 +473,8 @@ export const raceParticipants = pgTable("race_participants", {
   finishPosition: integer("finish_position"),
   finishedAt: timestamp("finished_at"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  // Security: Cryptographic token for WebSocket authentication (Phase 1 hardening)
+  joinToken: varchar("join_token", { length: 64 }),
 }, (table) => ({
   raceIdIdx: index("participant_race_id_idx").on(table.raceId),
   userIdIdx: index("participant_user_id_idx").on(table.userId),
@@ -1240,6 +1243,7 @@ export const stressTests = pgTable("stress_tests", {
   survivalTime: integer("survival_time").notNull(), // how long they lasted before failing
   completionRate: real("completion_rate").notNull(), // percentage of test completed
   stressScore: integer("stress_score").notNull(), // calculated score based on difficulty + performance
+  attemptCount: integer("attempt_count").notNull().default(1), // total attempts for this difficulty
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   userIdIdx: index("stress_test_user_id_idx").on(table.userId),

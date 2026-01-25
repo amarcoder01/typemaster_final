@@ -25,7 +25,7 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
     autoAdvance: false,
     hintsAllowed: true,
     timerPressure: false,
-    defaultSpeed: '1.0',
+    defaultSpeed: '0.8',
     defaultDifficulty: 'easy',
   },
   focus: {
@@ -46,6 +46,7 @@ export const PRACTICE_MODES: Record<PracticeMode, PracticeModeConfig> = {
     timerPressure: true,
     defaultSpeed: '1.3',
     defaultDifficulty: 'easy',
+    maxReplays: 2,
   },
 };
 
@@ -245,6 +246,9 @@ export interface SessionStats {
   maxChallengeStreak: number;
   completedInTime: number;
   timedOut: number;
+  // Session-wide tracking for certificate
+  totalReplays: number;
+  totalHints: number;
 }
 
 export interface ErrorCategory {
@@ -428,6 +432,8 @@ export const INITIAL_SESSION_STATS: SessionStats = {
   maxChallengeStreak: 0,
   completedInTime: 0,
   timedOut: 0,
+  totalReplays: 0,
+  totalHints: 0,
 };
 
 export const INITIAL_ADAPTIVE_CONFIG: AdaptiveDifficultyConfig = {

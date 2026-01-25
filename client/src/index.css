@@ -359,6 +359,80 @@
   will-change: opacity, box-shadow;
 }
 
+/* ============================================================================
+   ULTRA-SMOOTH HIGH-PERFORMANCE CARET FOR 200+ WPM
+   Uses GPU-accelerated composite-only properties (transform, opacity)
+   Optimized for minimal layout thrashing and maximum smoothness
+   ============================================================================ */
+
+/* Base caret styles - GPU accelerated */
+.caret-ultra-smooth {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, #facc15 0%, #fbbf24 50%, #f59e0b 100%);
+  border-radius: 1px;
+  pointer-events: none;
+  
+  /* GPU acceleration - critical for smoothness */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+  
+  /* Ultra-fast transition for 200+ WPM (16ms = 60fps sync) */
+  transition: opacity 16ms linear;
+  
+  /* Subtle shadow for depth */
+  box-shadow: 0 0 6px rgba(250, 204, 21, 0.6), 0 0 12px rgba(250, 204, 21, 0.3);
+}
+
+/* Focused state - smooth glow animation */
+.caret-focused {
+  opacity: 1;
+  animation: caret-ultra-glow 0.8s ease-in-out infinite;
+}
+
+/* Unfocused state - dimmed */
+.caret-unfocused {
+  opacity: 0.4;
+  animation: none;
+  box-shadow: none;
+}
+
+/* Ultra-smooth glow animation - GPU optimized */
+@keyframes caret-ultra-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(250, 204, 21, 0.8), 0 0 16px rgba(250, 204, 21, 0.4);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 4px rgba(250, 204, 21, 0.4), 0 0 8px rgba(250, 204, 21, 0.2);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .caret-ultra-smooth {
+    animation: none !important;
+    transition: none !important;
+  }
+  .caret-focused {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+/* High refresh rate displays (120Hz+) - even smoother */
+@media (min-resolution: 2dppx) {
+  .caret-ultra-smooth {
+    transition: opacity 8ms linear;
+  }
+}
+
 /* Character typing animation */
 @keyframes char-appear {
   0% {

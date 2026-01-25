@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { raceCache } from "./race-cache";
+import { botService } from "./bot-service";
 
 interface CleanupStats {
   totalCleaned: number;
@@ -99,7 +100,35 @@ class RaceCleanupScheduler {
           }
           
           console.log(`[RaceCleanup] Cleaning stale race ${race.id} (status: ${race.status}, age: ${Math.round(raceAge/60000)}min)`);
-          await storage.updateRaceStatus(race.id, "finished", undefined, new Date());
+          
+          // Stop any running bot timers to prevent memory leaks
+          try {
+            const participants = await storage.getRaceParticipants(race.id);
+            const bots = participants.filter(p => p.isBot === 1);
+            if (bots.length > 0) {
+              botService.stopAllBotsInRace(race.id, participants);
+              console.log(`[RaceCleanup] Stopped ${bots.length} bot timers for race ${race.id}`);
+            }
+          } catch (botError) {
+            console.error(`[RaceCleanup] Failed to stop bots for race ${race.id}:`, botError);
+          }
+          
+          // SECURITY FIX: Use atomic status update to prevent race condition
+          // Only clean if race is still in the expected stale status (not suddenly active)
+          const expectedStatus = race.status;
+          const updated = await storage.updateRaceStatusAtomic(
+            race.id, 
+            "finished", 
+            expectedStatus,  // Only update if status matches expected
+            undefined, 
+            new Date()
+          );
+          
+          if (!updated) {
+            console.log(`[RaceCleanup] Race ${race.id} status changed during cleanup, skipping`);
+            skippedActive++;
+            continue;
+          }
           
           raceCache.deleteRace(race.id);
 
@@ -123,8 +152,11 @@ class RaceCleanupScheduler {
       this.stats.totalCleaned += cleaned + oldFinished;
       this.stats.lastCleanup = new Date();
 
-    } catch (error) {
-      console.error("[RaceCleanup] Cleanup failed:", error);
+    } catch (error: any) {
+      // Suppress quota exceeded errors to avoid log spam
+      if (!error?.message?.includes('compute time quota')) {
+        console.error("[RaceCleanup] Cleanup failed:", error);
+      }
     } finally {
       this.isRunning = false;
     }

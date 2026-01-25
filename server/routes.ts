@@ -1,10 +1,12 @@
 import type { Express } from "express";
 import crypto from "node:crypto";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, getPoolStats } from "./storage";
 import { checkRateLimit } from "./auth-security";
 import { leaderboardCache } from "./leaderboard-cache";
 import { leaderboardWS } from "./leaderboard-websocket";
+import { metrics, getMetrics, getContentType, updateServerMetrics } from "./metrics-exporter";
+import { SERVER_ID, REDIS_ENABLED, getRedis } from "./redis-client";
 import { streamChatCompletionWithSearch, shouldPerformWebSearch, generateConversationTitle, type ChatMessage, type StreamEvent } from "./chat-service";
 import { generateTypingParagraph } from "./ai-paragraph-generator";
 import { generateCodeSnippet } from "./ai-code-generator";
@@ -87,6 +89,100 @@ function generateGuestUsername(): string {
   const suffix = guestNameSuffixes[Math.floor(Math.random() * guestNameSuffixes.length)];
   const num = Math.floor(Math.random() * 99) + 1;
   return `${prefix}${suffix}${num}`;
+}
+
+function generateSecureRoomCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(6);
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(bytes[i] % chars.length);
+  }
+  return code;
+}
+
+// Race configuration - can be overridden via environment variables
+const RACE_CONFIG = {
+  // Bot configuration
+  minBots: parseInt(process.env.RACE_MIN_BOTS || '1', 10),
+  maxBots: parseInt(process.env.RACE_MAX_BOTS || '3', 10),
+  
+  // Countdown configuration (in seconds)
+  countdownSeconds: parseInt(process.env.RACE_COUNTDOWN_SECONDS || '3', 10),
+  
+  // Allow private rooms to configure countdown (default: false for consistency)
+  privateRoomCustomCountdown: process.env.RACE_PRIVATE_CUSTOM_COUNTDOWN === 'true',
+  
+  // Default race settings
+  defaultMaxPlayers: parseInt(process.env.RACE_DEFAULT_MAX_PLAYERS || '8', 10),
+  defaultTimeLimitSeconds: parseInt(process.env.RACE_DEFAULT_TIME_LIMIT || '60', 10),
+} as const;
+
+function getRandomBotCount(): number {
+  const range = RACE_CONFIG.maxBots - RACE_CONFIG.minBots + 1;
+  return Math.floor(Math.random() * range) + RACE_CONFIG.minBots;
+}
+
+async function createRaceWithRetry(base: any): Promise<any> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const roomCode = generateSecureRoomCode();
+    try {
+      return await storage.createRace({ ...base, roomCode });
+    } catch (error: any) {
+      const msg = String(error?.message || "");
+      const code = (error as any)?.code;
+      const isCollision = code === '23505' || msg.includes('duplicate key') || msg.includes('unique');
+      if (!isCollision || attempt === 4) {
+        throw error;
+      }
+    }
+  }
+  throw new Error('Failed to create race');
+}
+
+const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000;
+function makeRequestIdempotencyKey(req: any, action: string, payload: any): string {
+  const headerKey = req.get?.('Idempotency-Key');
+  if (headerKey && typeof headerKey === 'string' && headerKey.length > 0 && headerKey.length <= 256) {
+    return crypto.createHash("sha256").update(`hdr:${action}:${headerKey}`).digest("hex");
+  }
+
+  const identity = req.user?.id
+    ? `user:${req.user.id}`
+    : (req.body?.guestId ? `guest:${req.body.guestId}` : `ip:${req.ip || ''}`);
+  const window = Math.floor(Date.now() / IDEMPOTENCY_WINDOW_MS);
+  return crypto.createHash("sha256").update(`${identity}:${action}:${window}:${JSON.stringify(payload)}`).digest("hex");
+}
+
+async function checkIdempotencyDistributed(key: string): Promise<{ isDuplicate: boolean; cachedResponse?: any }> {
+  if (!REDIS_ENABLED) {
+    return checkIdempotency(key);
+  }
+  try {
+    const redis = getRedis();
+    const cacheKey = `idempotency:${key}`;
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return { isDuplicate: true, cachedResponse: JSON.parse(cached) };
+    }
+  } catch (error) {
+    console.error('[Idempotency] Redis read error:', error);
+  }
+  return checkIdempotency(key);
+}
+
+async function storeIdempotencyDistributed(key: string, response: any): Promise<void> {
+  storeIdempotencyResult(key, response);
+  if (!REDIS_ENABLED) {
+    return;
+  }
+  try {
+    const redis = getRedis();
+    const cacheKey = `idempotency:${key}`;
+    await redis.set(cacheKey, JSON.stringify(response), 'PX', IDEMPOTENCY_WINDOW_MS);
+  } catch (error) {
+    console.error('[Idempotency] Redis write error:', error);
+  }
 }
 
 // Retry helper for transient database connection errors (Neon serverless)
@@ -193,27 +289,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.error('[Session Pool] Unexpected connection error (will auto-reconnect):', err.message);
   });
 
-  app.use(
-    session({
-      store: new PgSession({
-        pool: sessionPool,
-        createTableIfMissing: true,
-      }),
-      secret: sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+  // Skip session middleware for static files to avoid database connection issues
+  const staticFilePattern = /\.(js|css|png|jpg|jpeg|gif|webp|avif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|map)$/i;
+  const staticPaths = ['/service-worker.js', '/manifest.json', '/robots.txt', '/sitemap', '/indexnow'];
+  
+  // Try to create PgSession store, fall back to MemoryStore if database is unavailable
+  let sessionStore;
+  try {
+    const pgStore = new PgSession({
+      pool: sessionPool,
+      createTableIfMissing: false, // Don't auto-create table to avoid database quota issues
+      errorLog: (error: any) => {
+        // Suppress quota exceeded errors to prevent log spam
+        if (!error?.message?.includes('compute time quota')) {
+          console.error('[Session Store]', error.message || error);
+        }
       },
-    })
-  );
+    });
+    sessionStore = pgStore;
+    console.log('[Session Store] Using PostgreSQL session store');
+  } catch (error: any) {
+    console.error('[Session Store] Failed to initialize PostgreSQL store, using in-memory fallback:', error.message);
+    // Will use default MemoryStore by not providing a store
+    sessionStore = undefined;
+  }
+  
+  const sessionMiddleware = session({
+    store: sessionStore,
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    },
+  });
+  
+  const isStaticFile = (path: string): boolean => {
+    return staticFilePattern.test(path) || staticPaths.some(sp => path.startsWith(sp));
+  };
+  
+  app.use((req, res, next) => {
+    if (isStaticFile(req.path)) {
+      return next();
+    }
+    // Wrap session middleware with error handling
+    sessionMiddleware(req, res, (err) => {
+      if (err) {
+        // Log session errors but don't crash the request
+        if (!err?.message?.includes('compute time quota')) {
+          console.error('[Session] Error:', err.message || err);
+        }
+        // Continue without session if database is unavailable
+        return next();
+      }
+      next();
+    });
+  });
 
-  app.use(passport.initialize());
-  app.use(passport.session());
-  app.use(rememberMeMiddleware());
+  const passportInit = passport.initialize();
+  const passportSession = passport.session();
+  const rememberMe = rememberMeMiddleware();
+  
+  app.use((req, res, next) => {
+    if (isStaticFile(req.path)) {
+      return next();
+    }
+    passportInit(req, res, (err) => {
+      if (err) {
+        if (!err?.message?.includes('compute time quota')) {
+          console.error('[Passport Init] Error:', err.message || err);
+        }
+        return next();
+      }
+      next();
+    });
+  });
+  
+  app.use((req, res, next) => {
+    if (isStaticFile(req.path)) {
+      return next();
+    }
+    passportSession(req, res, (err: any) => {
+      if (err) {
+        if (!err?.message?.includes('compute time quota')) {
+          console.error('[Passport Session] Error:', err.message || err);
+        }
+        return next();
+      }
+      next();
+    });
+  });
+  
+  app.use((req, res, next) => {
+    if (isStaticFile(req.path)) {
+      return next();
+    }
+    rememberMe(req, res, (err) => {
+      if (err) {
+        if (!err?.message?.includes('compute time quota')) {
+          console.error('[Remember Me] Error:', err.message || err);
+        }
+        return next();
+      }
+      next();
+    });
+  });
 
   // Apply security headers to all API routes
   app.use("/api", securityHeaders());
@@ -501,6 +684,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.head("/api/health", (_req, res) => {
     res.status(200).end();
+  });
+
+  // Prometheus metrics endpoint for observability
+  app.get("/metrics", async (_req, res) => {
+    try {
+      // Update server metrics before responding
+      updateServerMetrics(SERVER_ID);
+      
+      // Update database pool metrics
+      const poolStats = getPoolStats();
+      metrics.dbConnectionsActive.set({ pool: 'primary' }, poolStats.primary.totalCount);
+      metrics.dbConnectionsIdle.set({ pool: 'primary' }, poolStats.primary.idleCount);
+      metrics.dbConnectionsWaiting.set({ pool: 'primary' }, poolStats.primary.waitingCount);
+      metrics.dbConnectionsActive.set({ pool: 'read' }, poolStats.read.totalCount);
+      metrics.dbConnectionsIdle.set({ pool: 'read' }, poolStats.read.idleCount);
+      metrics.dbConnectionsWaiting.set({ pool: 'read' }, poolStats.read.waitingCount);
+      
+      // Update WebSocket metrics
+      const wsStats = raceWebSocket.getStats();
+      metrics.wsConnections.set(wsStats.totalConnections);
+      metrics.wsConnectionsByServer.set({ server_id: SERVER_ID }, wsStats.totalConnections);
+      metrics.activeRaces.set({ status: 'active' }, wsStats.activeRooms);
+      
+      // Get metrics in Prometheus format
+      const metricsOutput = await getMetrics();
+      res.set('Content-Type', getContentType());
+      res.send(metricsOutput);
+    } catch (error) {
+      console.error('[Metrics] Error generating metrics:', error);
+      res.status(500).send('Error generating metrics');
+    }
+  });
+
+  // Kubernetes health check endpoints
+  app.get("/api/health/live", (_req, res) => {
+    // Liveness probe - server is running
+    res.status(200).json({ alive: true });
+  });
+
+  app.get("/api/health/ready", async (_req, res) => {
+    // Readiness probe - server is ready to accept traffic
+    try {
+      // Quick database check
+      await storage.getActiveRaces();
+      res.status(200).json({ ready: true });
+    } catch (error: any) {
+      res.status(503).json({ ready: false, reason: error.message });
+    }
   });
 
   const errorReportLimiter = rateLimit({
@@ -1091,13 +1322,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-create a verified certificate for this test result
       let certificate = null;
       try {
-        const { generateVerificationData } = await import("./certificate-verification-service");
+        const { generateVerificationData, getPerformanceTier } = await import("./certificate-verification-service");
         const user = await storage.getUser(req.user!.id);
 
         // Note: mode IS the duration (15, 30, 60, etc. seconds)
         // Use a default consistency of 100 since test_results doesn't track it
         const testDuration = result.mode; // mode represents duration in seconds
         const testConsistency = 100; // Default consistency
+        
+        // Calculate performance tier
+        const tierInfo = getPerformanceTier(result.wpm, result.accuracy, "standard");
+        
+        const certMetadata = {
+          username: user?.username || "Typing Expert",
+          mode: result.mode,
+          language: result.language,
+          freestyle: result.freestyle,
+          tier: tierInfo.tier,
+        };
 
         const verificationData = generateVerificationData({
           userId: req.user!.id,
@@ -1107,12 +1349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           consistency: testConsistency,
           duration: testDuration,
           testResultId: result.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            mode: result.mode,
-            language: result.language,
-            freestyle: result.freestyle,
-          },
+          metadata: certMetadata,
         });
 
         certificate = await storage.createCertificate({
@@ -1123,12 +1360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           consistency: testConsistency,
           duration: testDuration,
           userId: req.user!.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            mode: result.mode,
-            language: result.language,
-            freestyle: result.freestyle,
-          },
+          metadata: certMetadata,
           ...verificationData,
         });
 
@@ -2697,11 +2929,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/races/quick-match", async (req, res) => {
     try {
       const user = req.user;
-      const { guestId, raceType, timeLimitSeconds } = req.body;
+      const { guestId, guestDisplayName, raceType, timeLimitSeconds } = req.body;
       let username: string;
+
+      if (!user) {
+        if (!guestId || typeof guestId !== 'string' || guestId.length > 128) {
+          return res.status(400).json({ message: "Invalid guestId" });
+        }
+      }
 
       if (user) {
         username = user.username;
+      } else if (guestDisplayName && typeof guestDisplayName === 'string') {
+        // Sanitize: allow alphanumeric, spaces, underscores
+        const sanitized = guestDisplayName.trim().replace(/[^a-zA-Z0-9_ ]/g, '').slice(0, 20);
+        username = sanitized.length >= 2 ? sanitized : generateGuestUsername();
       } else {
         username = generateGuestUsername();
       }
@@ -2712,8 +2954,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const effectiveRaceType = raceType || "timed";
       const effectiveTimeLimit = timeLimitSeconds || 60;
 
-      // Automatically assign random number of opponents (1-3) for natural feel
-      const effectiveBotCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
+      const idempotencyKey = makeRequestIdempotencyKey(req, "races:quick-match", {
+        raceType: effectiveRaceType,
+        timeLimitSeconds: effectiveTimeLimit,
+        username,
+      });
+      const idempotencyCheck = await checkIdempotencyDistributed(idempotencyKey);
+      if (idempotencyCheck.isDuplicate && idempotencyCheck.cachedResponse) {
+        return res.json(idempotencyCheck.cachedResponse);
+      }
+
+      // Automatically assign random number of opponents for natural feel
+      const effectiveBotCount = getRandomBotCount();
 
       const activeRaces = await storage.getActiveRaces();
 
@@ -2746,6 +2998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let race;
       let paragraphContent: string;
       let paragraphId: number | undefined;
+      let isNewRace = false;
 
       if (availableRace) {
         race = availableRace;
@@ -2755,6 +3008,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existingParticipants = await storage.getRaceParticipants(race.id);
         console.log(`[Quick Match] Existing race ${race.id} has ${existingParticipants.length} participants`);
       } else {
+        isNewRace = true;
         // For timed races, generate more content
         if (effectiveRaceType === "timed") {
           const paragraphs: string[] = [];
@@ -2763,7 +3017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let totalChars = 0;
 
           while (totalChars < estimatedCharsNeeded) {
-            const para = await storage.getRandomParagraph("english", "quote");
+            const para = await storage.getRandomParagraph("en", "quote");
             if (para) {
               paragraphs.push(para.content);
               totalChars += para.content.length;
@@ -2773,7 +3027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           paragraphContent = paragraphs.join(" ");
         } else {
-          const paragraph = await storage.getRandomParagraph("english", "quote");
+          const paragraph = await storage.getRandomParagraph("en", "quote");
           if (!paragraph) {
             return res.status(500).json({ message: "No paragraph available" });
           }
@@ -2785,9 +3039,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "No paragraph available" });
         }
 
-        const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        race = await storage.createRace({
-          roomCode,
+        race = await createRaceWithRetry({
           status: "waiting",
           raceType: effectiveRaceType,
           timeLimitSeconds: effectiveRaceType === "timed" ? effectiveTimeLimit : null,
@@ -2797,14 +3049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isPrivate: 0,
         });
 
-        // Add opponents to race
-        console.log(`[Quick Match] Creating new race ${race.id}, adding ${effectiveBotCount} opponents...`);
-        try {
-          const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
-          console.log(`[Quick Match] Added ${addedOpponents.length} opponents to race ${race.id}`);
-        } catch (opponentError: any) {
-          console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
-        }
+        console.log(`[Quick Match] Creating new race ${race.id}...`);
       }
 
       const participants = await storage.getRaceParticipants(race.id);
@@ -2848,6 +3093,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isFinished: 0,
             isBot: 0,
           });
+          
+          // Post-creation check for race condition: verify we didn't exceed maxPlayers
+          const postCreateParticipants = await storage.getRaceParticipants(race.id);
+          const humanCount = postCreateParticipants.filter(p => p.isBot !== 1).length;
+          if (humanCount > race.maxPlayers) {
+            // Too many humans joined simultaneously - remove this participant
+            await storage.deleteRaceParticipant(participant.id);
+            console.log(`[Quick Match] Race condition detected - removed participant ${username} (over max)`);
+            return res.status(400).json({ message: "Race is full", code: "ROOM_FULL" });
+          }
+        }
+      }
+
+      // If this is a new race, set the creator as the race owner (they will always be the host)
+      // and add bots AFTER setting the creator to ensure correct host assignment
+      if (isNewRace) {
+        await storage.updateRaceCreator(race.id, participant.id);
+        race = { ...race, creatorParticipantId: participant.id };
+        console.log(`[Quick Match] Set creator ${participant.username} (${participant.id}) for race ${race.id}`);
+
+        // Add opponents to race after setting the creator
+        console.log(`[Quick Match] Adding ${effectiveBotCount} opponents to race ${race.id}...`);
+        try {
+          const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
+          console.log(`[Quick Match] Added ${addedOpponents.length} opponents to race ${race.id}`);
+        } catch (opponentError: any) {
+          console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
         }
       }
 
@@ -2858,7 +3130,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       raceCache.setRace(race, allParticipants);
       console.log(`[Quick Match] Updated cache with ${allParticipants.length} participants for race ${race.id}`);
 
-      res.json({ race, participant });
+      const responseData = { race, participant };
+      await storeIdempotencyDistributed(idempotencyKey, responseData);
+      res.json(responseData);
     } catch (error: any) {
       console.error("Quick match error:", error);
       res.status(500).json({ message: error.message });
@@ -2867,8 +3141,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/races/create", async (req, res) => {
     try {
-      const { isPrivate, maxPlayers: rawMaxPlayers, guestId, timeLimitSeconds: rawTimeLimit, textSource } = req.body;
+      const { isPrivate, maxPlayers: rawMaxPlayers, guestId, guestDisplayName, timeLimitSeconds: rawTimeLimit, textSource } = req.body;
       const user = req.user;
+
+      if (!user) {
+        if (!guestId || typeof guestId !== 'string' || guestId.length > 128) {
+          return res.status(400).json({ message: "Invalid guestId" });
+        }
+      }
 
       // Validate and sanitize room settings
       const maxPlayers = Math.max(2, Math.min(10, Number(rawMaxPlayers) || 4));
@@ -2878,16 +3158,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeLimitSeconds = validDurations.includes(Number(rawTimeLimit)) ? Number(rawTimeLimit) : 60;
 
       // Validate text source
-      const validTextSources = ["general", "quotes", "programming", "technical", "news", "entertainment", "random"];
-      const selectedTextSource = validTextSources.includes(textSource) ? textSource : "general";
+      // Note: "programming" mode contains code snippets - redirect to "technical" for readable content about programming
+      const validTextSources = ["general", "quotes", "technical", "news", "entertainment", "random"];
+      let selectedTextSource = validTextSources.includes(textSource) ? textSource : "general";
+      if (textSource === "programming") {
+        selectedTextSource = "technical"; // Map programming to technical for better typing experience
+      }
 
-      // Automatically assign random number of opponents (1-3) for natural feel
-      const botCount = Math.floor(Math.random() * 3) + 1; // 1, 2, or 3
+      const idempotencyKey = makeRequestIdempotencyKey(req, "races:create", {
+        isPrivate: !!isPrivate,
+        maxPlayers,
+        timeLimitSeconds,
+        textSource: selectedTextSource,
+        guestId: user ? undefined : guestId,
+        userId: user?.id,
+      });
+      const idempotencyCheck = await checkIdempotencyDistributed(idempotencyKey);
+      if (idempotencyCheck.isDuplicate && idempotencyCheck.cachedResponse) {
+        return res.json(idempotencyCheck.cachedResponse);
+      }
+
+      // Automatically assign random number of opponents for natural feel
+      const botCount = getRandomBotCount();
 
       let username: string;
 
       if (user) {
         username = user.username;
+      } else if (guestDisplayName && typeof guestDisplayName === 'string') {
+        // Sanitize: allow alphanumeric, spaces, underscores
+        const sanitized = guestDisplayName.trim().replace(/[^a-zA-Z0-9_ ]/g, '').slice(0, 20);
+        username = sanitized.length >= 2 ? sanitized : generateGuestUsername();
       } else {
         username = generateGuestUsername();
       }
@@ -2905,11 +3206,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paragraphs: string[] = [];
 
       // Map client text source to database mode names
-      // Database modes: general, technical, entertainment, quotes, programming, business, stories, news
+      // Database modes: general, technical, entertainment, quotes, news
+      // Note: "programming" mode contains code snippets - it's excluded for typing races
       const modeMapping: Record<string, string | null> = {
         "general": "general",
         "quotes": "quotes",
-        "programming": "programming",
         "technical": "technical",
         "news": "news",
         "entertainment": "entertainment",
@@ -2922,20 +3223,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (dbMode === null) {
         // Random mode: pick from multiple categories for variety
-        const availableModes = ["general", "quotes", "programming", "technical", "news", "entertainment"];
+        // Note: "programming" is excluded as it contains code snippets that aren't suitable for typing races
+        const availableModes = ["general", "quotes", "technical", "news", "entertainment"];
         const usedParagraphIds = new Set<number>();
 
         for (let i = 0; i < Math.max(paragraphsNeeded, 3); i++) {
           // Pick a random mode for each paragraph
           const randomMode = availableModes[Math.floor(Math.random() * availableModes.length)];
-          const p = await storage.getRandomParagraph("english", randomMode);
+          const p = await storage.getRandomParagraph("en", randomMode);
           if (p && !usedParagraphIds.has(p.id)) {
             usedParagraphIds.add(p.id);
             paragraphs.push(p.content);
             if (i === 0) paragraphId = p.id;
           } else {
             // Fallback to general mode if we get a duplicate
-            const fallbackP = await storage.getRandomParagraph("english", "general");
+            const fallbackP = await storage.getRandomParagraph("en", "general");
             if (fallbackP && !usedParagraphIds.has(fallbackP.id)) {
               usedParagraphIds.add(fallbackP.id);
               paragraphs.push(fallbackP.content);
@@ -2945,7 +3247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         // Specific mode selected - use getRandomParagraphs for efficiency and uniqueness
-        const selectedParagraphs = await storage.getRandomParagraphs("english", Math.max(paragraphsNeeded, 3), dbMode);
+        const selectedParagraphs = await storage.getRandomParagraphs("en", Math.max(paragraphsNeeded, 3), dbMode);
 
         if (selectedParagraphs.length > 0) {
           for (let i = 0; i < selectedParagraphs.length; i++) {
@@ -2955,7 +3257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           // Fallback: if the specific mode has no content, use general
           console.log(`[Race Create] No paragraphs found for mode "${dbMode}", falling back to general`);
-          const fallbackParagraphs = await storage.getRandomParagraphs("english", Math.max(paragraphsNeeded, 3), "general");
+          const fallbackParagraphs = await storage.getRandomParagraphs("en", Math.max(paragraphsNeeded, 3), "general");
           for (let i = 0; i < fallbackParagraphs.length; i++) {
             paragraphs.push(fallbackParagraphs[i].content);
             if (i === 0) paragraphId = fallbackParagraphs[i].id;
@@ -2970,9 +3272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ message: "No paragraph available" });
       }
 
-      const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const race = await storage.createRace({
-        roomCode,
+      const race = await createRaceWithRetry({
         status: "waiting",
         raceType: "timed",
         timeLimitSeconds,
@@ -2996,6 +3296,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isBot: 0,
       });
 
+      // Set the creator as the race owner (they will always be the host)
+      await storage.updateRaceCreator(race.id, participant.id);
+      const updatedRace = { ...race, creatorParticipantId: participant.id };
+      console.log(`[Create Room] Set creator ${participant.username} (${participant.id}) for race ${race.id}`);
+
       // Only add bots to public rooms, not private rooms
       if (!isPrivate) {
         console.log(`[Create Room] Adding ${botCount} opponents to race ${race.id}...`);
@@ -3012,10 +3317,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update race cache with all participants
       const { raceCache } = await import("./race-cache");
       const allParticipants = await storage.getRaceParticipants(race.id);
-      raceCache.setRace(race, allParticipants);
+      raceCache.setRace(updatedRace, allParticipants);
       console.log(`[Create Room] Updated cache with ${allParticipants.length} participants for race ${race.id}`);
 
-      res.json({ race, participant });
+      const responseData = { race: updatedRace, participant };
+      await storeIdempotencyDistributed(idempotencyKey, responseData);
+      res.json(responseData);
     } catch (error: any) {
       console.error("Create race error:", error);
       res.status(500).json({ message: error.message });
@@ -3025,17 +3332,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/races/join/:roomCode", async (req, res) => {
     try {
       const { roomCode } = req.params;
-      const { guestId } = req.body;
+      const { guestId, guestDisplayName } = req.body;
       const user = req.user;
       let username: string;
 
+      if (!user) {
+        if (!guestId || typeof guestId !== 'string' || guestId.length > 128) {
+          return res.status(400).json({ message: "Invalid guestId" });
+        }
+      }
+
       if (user) {
         username = user.username;
+      } else if (guestDisplayName && typeof guestDisplayName === 'string') {
+        // Sanitize: allow alphanumeric, spaces, underscores
+        const sanitized = guestDisplayName.trim().replace(/[^a-zA-Z0-9_ ]/g, '').slice(0, 20);
+        username = sanitized.length >= 2 ? sanitized : generateGuestUsername();
       } else {
         username = generateGuestUsername();
       }
 
       const avatarColor = user?.avatarColor || "bg-primary";
+
+      const idempotencyKey = makeRequestIdempotencyKey(req, "races:join", {
+        roomCode: roomCode.toUpperCase(),
+        userId: user?.id,
+        guestId: user ? undefined : guestId,
+      });
+      const idempotencyCheck = await checkIdempotencyDistributed(idempotencyKey);
+      if (idempotencyCheck.isDuplicate && idempotencyCheck.cachedResponse) {
+        return res.json(idempotencyCheck.cachedResponse);
+      }
 
       const race = await storage.getRaceByCode(roomCode.toUpperCase());
       if (!race) {
@@ -3125,6 +3452,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // This ensures WebSocket can find the participant when they connect
           const { raceCache } = await import("./race-cache");
           const updatedParticipants = await storage.getRaceParticipants(race.id);
+          
+          // Post-creation check for race condition: verify we didn't exceed maxPlayers
+          const humanParticipants = updatedParticipants.filter(p => p.isBot !== 1);
+          if (humanParticipants.length > race.maxPlayers) {
+            // Too many humans joined simultaneously - remove this participant
+            await storage.deleteRaceParticipant(participant.id);
+            console.log(`[Join Room] Race condition detected - removed participant ${username} (over max)`);
+            return res.status(400).json({ message: "Race is full", code: "ROOM_FULL" });
+          }
+          
           raceCache.updateParticipants(race.id, updatedParticipants, race);
           console.log(`[Join Room] Updated race cache with new participant ${username} (${participant.id})`);
 
@@ -3144,7 +3481,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ race, participant });
+      const responseData = { race, participant };
+      await storeIdempotencyDistributed(idempotencyKey, responseData);
+      res.json(responseData);
     } catch (error: any) {
       console.error("Join race error:", error);
       res.status(500).json({ message: error.message });
@@ -3211,6 +3550,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Race invite error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Leave a race - used by sendBeacon on page unload for reliable cleanup
+  app.post("/api/races/leave", async (req, res) => {
+    try {
+      const { raceId, participantId, joinToken, isRacing, progress, errors } = req.body;
+
+      if (!raceId || !participantId) {
+        return res.status(400).json({ message: "Missing raceId or participantId" });
+      }
+
+      const { raceWebSocket } = await import("./websocket");
+      const { raceCache } = await import("./race-cache");
+      const { REDIS_ENABLED, redisClient, REDIS_KEYS } = await import("./redis-client");
+
+      // Get race from cache or database
+      let cachedRace = raceCache.getRace(raceId);
+      let race = cachedRace?.race || await storage.getRace(raceId);
+
+      if (!race) {
+        return res.status(404).json({ message: "Race not found" });
+      }
+
+      // Get participant info before removal
+      const participants = cachedRace?.participants || await storage.getRaceParticipants(raceId);
+      const leavingParticipant = participants.find(p => p.id === participantId);
+      const leavingUsername = leavingParticipant?.username;
+
+      if (!leavingParticipant) {
+        // Participant already removed, no action needed
+        return res.json({ success: true, message: "Participant already left" });
+      }
+
+      // Authorization: only the participant themselves can call this endpoint.
+      // Users are authorized via session; guests must present the joinToken.
+      if (req.user?.id) {
+        if (!leavingParticipant.userId || leavingParticipant.userId !== req.user.id) {
+          return res.status(403).json({ message: "Not authorized" });
+        }
+      } else {
+        if (!joinToken || typeof joinToken !== 'string' || leavingParticipant.joinToken !== joinToken) {
+          return res.status(403).json({ message: "Not authorized" });
+        }
+      }
+
+      // If leaving during an active race, mark as DNF
+      if (race.status === "racing" || race.status === "countdown" || isRacing) {
+        try {
+          await raceCache.flushParticipantProgress(participantId);
+        } catch {
+          // Best-effort
+        }
+
+        const refreshed = raceCache.getRace(raceId);
+        const refreshedParticipant = refreshed?.participants?.find(p => p.id === participantId);
+
+        const safeProgress = Math.max(refreshedParticipant?.progress || 0, typeof progress === 'number' ? progress : 0);
+        const safeErrors = Math.max(refreshedParticipant?.errors || 0, typeof errors === 'number' ? errors : 0);
+        const clampedErrors = Math.max(0, Math.min(safeErrors, safeProgress));
+
+        const startedAtMs = race.startedAt ? new Date(race.startedAt).getTime() : undefined;
+        const elapsedSeconds = startedAtMs ? Math.max(1, (Date.now() - startedAtMs) / 1000) : 1;
+        const correctChars = Math.max(0, safeProgress - clampedErrors);
+        const calculatedWpm = Math.round((correctChars / 5) / (elapsedSeconds / 60));
+        const calculatedAccuracy = safeProgress > 0 ? Math.round((correctChars / safeProgress) * 100 * 100) / 100 : 100;
+
+        await storage.updateParticipantProgress(
+          participantId,
+          safeProgress,
+          calculatedWpm,
+          calculatedAccuracy,
+          clampedErrors
+        );
+
+        // Mark as finished with DNF position (999 indicates DNF)
+        await storage.updateParticipantFinishPosition(participantId, 999);
+        await storage.finishParticipant(participantId);
+
+        // Update cache
+        const updatedParticipants = await storage.getRaceParticipants(raceId);
+        raceCache.updateParticipants(raceId, updatedParticipants);
+        if (REDIS_ENABLED) {
+          await redisClient.srem(REDIS_KEYS.raceConnections(raceId), participantId.toString());
+        }
+
+        // Broadcast DNF status
+        raceWebSocket.broadcastToRaceById(raceId, {
+          type: "participant_dnf",
+          participantId,
+          username: leavingUsername,
+        });
+      } else {
+        // For waiting or finished races, just delete the participant
+        await storage.deleteRaceParticipant(participantId);
+        raceCache.removeParticipant(raceId, participantId);
+        if (REDIS_ENABLED) {
+          await redisClient.srem(REDIS_KEYS.raceConnections(raceId), participantId.toString());
+        }
+
+        // Broadcast participant_left
+        raceWebSocket.broadcastToRaceById(raceId, {
+          type: "participant_left",
+          participantId,
+          username: leavingUsername,
+        });
+      }
+
+      console.log(`[API Leave] Participant ${leavingUsername} (${participantId}) left race ${raceId}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Race leave error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -3339,7 +3791,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Race not found" });
       }
 
-      res.json(raceData);
+      const requesterUserId = req.user?.id;
+      const safeParticipants = raceData.participants.map((p: any) => {
+        if (requesterUserId && p.userId === requesterUserId) {
+          return p;
+        }
+        const { joinToken, ...rest } = p;
+        return rest;
+      });
+
+      res.json({
+        race: raceData.race,
+        participants: safeParticipants,
+      });
     } catch (error: any) {
       console.error("Get race error:", error);
       res.status(500).json({ message: error.message });
@@ -3744,11 +4208,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-create certificate for code typing test
       let certificate = null;
       try {
-        const { generateVerificationData } = await import("./certificate-verification-service");
+        const { generateVerificationData, getPerformanceTier } = await import("./certificate-verification-service");
         const user = await storage.getUser(req.user!.id);
         
         const testDuration = test.duration || 0;
         const testConsistency = (test as any).consistency ?? 100;
+        
+        // Calculate performance tier (code has different thresholds)
+        const tierInfo = getPerformanceTier(test.wpm, test.accuracy, "code");
+        
+        const codeCertMetadata = {
+          username: user?.username || "Typing Expert",
+          language: test.programmingLanguage,
+          languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
+          difficulty: (test as any).difficulty ?? 'medium',
+          characters: test.characters || 0,
+          errors: test.errors || 0,
+          rawWpm: (test as any).rawWpm ?? test.wpm,
+          time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
+          tier: tierInfo.tier,
+        };
 
         const verificationData = generateVerificationData({
           userId: req.user!.id,
@@ -3758,16 +4237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           consistency: testConsistency,
           duration: testDuration,
           codeTestId: test.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            language: test.programmingLanguage,
-            languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
-            difficulty: (test as any).difficulty ?? 'medium',
-            characters: test.characters || 0,
-            errors: test.errors || 0,
-            rawWpm: (test as any).rawWpm ?? test.wpm,
-            time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
-          },
+          metadata: codeCertMetadata,
         });
 
         certificate = await storage.createCertificate({
@@ -3778,16 +4248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           consistency: testConsistency,
           duration: testDuration,
           userId: req.user!.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            language: test.programmingLanguage,
-            languageName: test.programmingLanguage?.charAt(0).toUpperCase() + test.programmingLanguage?.slice(1),
-            difficulty: (test as any).difficulty ?? 'medium',
-            characters: test.characters || 0,
-            errors: test.errors || 0,
-            rawWpm: (test as any).rawWpm ?? test.wpm,
-            time: `${Math.floor(testDuration / 60)}:${String(testDuration % 60).padStart(2, '0')}`,
-          },
+          metadata: codeCertMetadata,
           ...verificationData,
         });
 
@@ -3894,7 +4355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       while (attempts < maxAttempts) {
         try {
-          const shareId = Math.random().toString(36).substring(2, 12).toUpperCase();
+          const shareId = crypto.randomBytes(5).toString('hex').toUpperCase();
 
           const dataToValidate = {
             shareId,
@@ -4817,48 +5278,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-create certificate for stress test
       let certificate = null;
       try {
-        const { generateVerificationData } = await import("./certificate-verification-service");
+        const { generateVerificationData, getPerformanceTier } = await import("./certificate-verification-service");
         const user = await storage.getUser(req.user!.id);
         
-        const testDuration = result.duration || 0;
-        const testConsistency = (result as any).consistency ?? 100;
+        // IMPORTANT: Use req.body for fields not in schema, result for database values
+        const rawRequestBody = req.body;
+        const testDuration = result.duration || parsed.data.duration || 0;
+        
+        // Use consistency from the raw request body (not stored in stress_tests table, not in schema)
+        const testConsistency = typeof rawRequestBody.consistency === 'number' 
+          ? Math.round(rawRequestBody.consistency)
+          : Math.round(result.accuracy * 0.9); // Fallback calculation
+        
+        // Get active challenges count from the raw request body (not in schema)
+        // Fallback: count enabled effects from the parsed data
+        const activeChallengesCount = typeof rawRequestBody.activeChallenges === 'number'
+          ? rawRequestBody.activeChallenges
+          : (parsed.data.enabledEffects ? Object.values(parsed.data.enabledEffects).filter(Boolean).length : 0);
+        
+        // Map difficulty keys to display names
+        const STRESS_DIFFICULTY_NAMES: Record<string, string> = {
+          beginner: 'Warm-Up',
+          intermediate: 'Mind Scrambler',
+          expert: 'Absolute Mayhem',
+          nightmare: 'Nightmare Realm',
+          impossible: 'IMPOSSIBLE',
+        };
+        
+        // IMPORTANT: Use parsed.data (CURRENT submission) for certificate, NOT result (which may be old best score)
+        // This ensures the certificate reflects what the user just typed, not their historical best
+        const currentSubmission = parsed.data;
+        const currentTierInfo = getPerformanceTier(currentSubmission.wpm, currentSubmission.accuracy, "stress");
+        
+        const stressCertMetadata = {
+          username: user?.username || "Typing Expert",
+          difficulty: currentSubmission.difficulty,
+          difficultyName: STRESS_DIFFICULTY_NAMES[currentSubmission.difficulty] || currentSubmission.difficulty,
+          stressScore: currentSubmission.stressScore,
+          survivalTime: currentSubmission.survivalTime,
+          completionRate: currentSubmission.completionRate,
+          maxCombo: currentSubmission.maxCombo,
+          activeChallenges: activeChallengesCount,
+          tier: currentTierInfo.tier,
+          consistency: testConsistency,
+        };
 
         const verificationData = generateVerificationData({
           userId: req.user!.id,
           certificateType: "stress",
-          wpm: result.wpm,
-          accuracy: result.accuracy,
+          wpm: currentSubmission.wpm,
+          accuracy: currentSubmission.accuracy,
           consistency: testConsistency,
-          duration: testDuration,
-          stressTestId: result.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            difficulty: result.difficulty,
-            stressScore: result.stressScore,
-            survivalTime: result.survivalTime,
-            completionRate: result.completionRate,
-            maxCombo: result.maxCombo,
-            activeChallenges: (result as any).activeChallenges ?? [],
-          },
+          duration: currentSubmission.duration,
+          stressTestId: result.id, // Link to database record
+          metadata: stressCertMetadata,
         });
 
         certificate = await storage.createCertificate({
           certificateType: "stress",
-          stressTestId: result.id,
-          wpm: result.wpm,
-          accuracy: result.accuracy,
+          stressTestId: result.id, // Link to database record
+          wpm: currentSubmission.wpm,
+          accuracy: currentSubmission.accuracy,
           consistency: testConsistency,
-          duration: testDuration,
+          duration: currentSubmission.duration,
           userId: req.user!.id,
-          metadata: {
-            username: user?.username || "Typing Expert",
-            difficulty: result.difficulty,
-            stressScore: result.stressScore,
-            survivalTime: result.survivalTime,
-            completionRate: result.completionRate,
-            maxCombo: result.maxCombo,
-            activeChallenges: (result as any).activeChallenges ?? [],
-          },
+          metadata: stressCertMetadata,
           ...verificationData,
         });
 
@@ -5967,7 +6451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         ...verificationData, // Add verification ID, signature, issuedAt, issuerVersion
       });
-
+      
       console.log(`[Certificate] Created verified certificate ${verificationData.verificationId} for user ${userId}`);
 
       res.json(certificate);
@@ -6071,7 +6555,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public endpoint: Verify a certificate by verification ID
   app.get("/api/verify/:verificationId", async (req, res) => {
     // Generate unique request ID for tracking/debugging
-    const requestId = `VRF-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`.toUpperCase();
+    const requestId = `VRF-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`.toUpperCase();
     const requestTimestamp = new Date().toISOString();
 
     try {

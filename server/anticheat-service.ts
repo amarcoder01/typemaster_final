@@ -26,16 +26,18 @@ interface ValidationResult {
   };
 }
 
+// SECURITY FIX: Tightened thresholds for better cheat detection
+// World record typing speed is ~216 WPM (~18 chars/sec), so these limits are still generous
 const THRESHOLDS = {
-  MIN_KEYSTROKE_INTERVAL_MS: 10,
-  SUSPECT_KEYSTROKE_INTERVAL_MS: 25,
-  MAX_WPM_WITHOUT_CERTIFICATION: 100,
-  WPM_DISCREPANCY_THRESHOLD: 15,
-  PERFECT_ACCURACY_WPM_THRESHOLD: 80,
-  MIN_KEYSTROKES_FOR_ANALYSIS: 20,
-  MAX_CONSISTENT_INTERVAL_VARIANCE: 5,
-  BURST_DETECTION_WINDOW: 10,
-  BURST_THRESHOLD_RATIO: 0.8,
+  MIN_KEYSTROKE_INTERVAL_MS: 30,           // Was 10ms (100 keys/sec) - now 30ms (~33 keys/sec, world record territory)
+  SUSPECT_KEYSTROKE_INTERVAL_MS: 50,       // Was 25ms - now 50ms for suspicious flagging
+  MAX_WPM_WITHOUT_CERTIFICATION: 120,      // Was 100 - slight increase for legitimate fast typists
+  WPM_DISCREPANCY_THRESHOLD: 10,           // Was 15 - tighter variance between client/server WPM
+  PERFECT_ACCURACY_WPM_THRESHOLD: 100,     // Was 80 - perfect accuracy at 100+ WPM is suspicious
+  MIN_KEYSTROKES_FOR_ANALYSIS: 20,         // Keep same - need enough data
+  MAX_CONSISTENT_INTERVAL_VARIANCE: 3,     // Was 5 - lower tolerance for machine-like patterns
+  BURST_DETECTION_WINDOW: 10,              // Keep same window
+  BURST_THRESHOLD_RATIO: 0.7,              // Was 0.8 - more sensitive burst detection
 } as const;
 
 export class AntiCheatService {

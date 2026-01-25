@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, Zap, Target, Trophy, HelpCircle, Flame, Calendar, Clock, Lightbulb, LightbulbOff, Timer, ChevronRight, Headphones, Keyboard, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Zap, Target, Trophy, HelpCircle, Flame, Calendar, Clock, Lightbulb, LightbulbOff, Timer, TimerOff, ChevronRight, Headphones, Keyboard, CheckCircle2, Repeat, Repeat1, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -47,15 +47,21 @@ const MODE_COLORS: Record<PracticeMode, { bg: string; text: string; border: stri
 const MODE_FEATURES: Record<PracticeMode, { icon: React.ReactNode; label: string; enabled: boolean }[]> = {
   quick: [
     { icon: <Lightbulb className="w-3.5 h-3.5" />, label: 'Hints Available', enabled: true },
-    { icon: <Timer className="w-3.5 h-3.5" />, label: 'Untimed', enabled: false },
+    { icon: <Repeat className="w-3.5 h-3.5" />, label: 'Unlimited Replays', enabled: true },
+    { icon: <TimerOff className="w-3.5 h-3.5" />, label: 'No Time Limit', enabled: false },
+    { icon: <Gauge className="w-3.5 h-3.5" />, label: 'Slower Speed (0.8x)', enabled: true },
   ],
   focus: [
     { icon: <LightbulbOff className="w-3.5 h-3.5" />, label: 'No Hints', enabled: true },
-    { icon: <Timer className="w-3.5 h-3.5" />, label: 'Untimed', enabled: false },
+    { icon: <Repeat1 className="w-3.5 h-3.5" />, label: '5 Replays Only', enabled: true },
+    { icon: <TimerOff className="w-3.5 h-3.5" />, label: 'No Time Limit', enabled: false },
+    { icon: <Gauge className="w-3.5 h-3.5" />, label: 'Slower Speed (0.8x)', enabled: true },
   ],
   challenge: [
     { icon: <LightbulbOff className="w-3.5 h-3.5" />, label: 'No Hints', enabled: true },
-    { icon: <Timer className="w-3.5 h-3.5" />, label: 'Timed', enabled: true },
+    { icon: <Repeat1 className="w-3.5 h-3.5" />, label: '2 Replays Only', enabled: true },
+    { icon: <Timer className="w-3.5 h-3.5" />, label: 'Timed Challenge', enabled: true },
+    { icon: <Gauge className="w-3.5 h-3.5" />, label: 'Faster Speed (1.3x)', enabled: true },
   ],
 };
 
@@ -277,8 +283,8 @@ export function DictationModeSelector({
                                     <div
                                       key={idx}
                                       className={`flex items-center justify-center gap-2 py-1.5 px-3 rounded-md text-xs font-medium ${feature.enabled
-                                          ? 'bg-foreground/5 text-foreground'
-                                          : 'bg-muted/50 text-muted-foreground'
+                                        ? 'bg-foreground/5 text-foreground'
+                                        : 'bg-muted/50 text-muted-foreground'
                                         }`}
                                     >
                                       {feature.icon}

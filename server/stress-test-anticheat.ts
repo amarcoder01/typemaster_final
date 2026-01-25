@@ -23,7 +23,7 @@ export interface StressTestSubmission {
 
 const VALIDATION_CONSTANTS = {
   MAX_WPM: 250,
-  MIN_ACCURACY: 50,
+  MIN_ACCURACY: 10, // Lowered from 50 to allow legitimate poor performance in stress test
   MAX_ACCURACY: 100,
   MIN_COMPLETION_RATE: 0,
   MAX_COMPLETION_RATE: 100,
@@ -39,7 +39,8 @@ const VALIDATION_CONSTANTS = {
     impossible: 4000,
   } as Record<string, number>,
   MIN_TEST_DURATION_SECONDS: 5,
-  MAX_CHARS_PER_SECOND: 15,
+  MAX_CHARS_PER_SECOND: 25, // Increased from 15 to 25 to account for error corrections and stress test chaos
+  WPM_MISMATCH_THRESHOLD: 50, // Increased from 20 to account for net WPM vs gross WPM differences
 };
 
 export async function validateStressTestSubmission(
@@ -57,13 +58,13 @@ export async function validateStressTestSubmission(
     errors.push("WPM cannot be negative");
   }
 
-  if (submission.accuracy < VALIDATION_CONSTANTS.MIN_ACCURACY || 
-      submission.accuracy > VALIDATION_CONSTANTS.MAX_ACCURACY) {
+  if (submission.accuracy < VALIDATION_CONSTANTS.MIN_ACCURACY ||
+    submission.accuracy > VALIDATION_CONSTANTS.MAX_ACCURACY) {
     errors.push(`Accuracy (${submission.accuracy}) is out of valid range (${VALIDATION_CONSTANTS.MIN_ACCURACY}-${VALIDATION_CONSTANTS.MAX_ACCURACY})`);
   }
 
-  if (submission.completionRate < VALIDATION_CONSTANTS.MIN_COMPLETION_RATE || 
-      submission.completionRate > VALIDATION_CONSTANTS.MAX_COMPLETION_RATE) {
+  if (submission.completionRate < VALIDATION_CONSTANTS.MIN_COMPLETION_RATE ||
+    submission.completionRate > VALIDATION_CONSTANTS.MAX_COMPLETION_RATE) {
     errors.push(`Completion rate (${submission.completionRate}) is out of valid range`);
   }
 
@@ -76,13 +77,23 @@ export async function validateStressTestSubmission(
   }
 
   // Session timing validation: Check if duration matches the characters typed
-  // Maximum typing speed is about 15 characters per second for elite typists
+  // Use correct characters (total - errors) for more accurate speed validation
+  // This accounts for users who type fast but make corrections
   if (submission.totalCharacters > 0 && submission.duration > 0) {
-    const charsPerSecond = submission.totalCharacters / submission.duration;
-    if (charsPerSecond > VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND) {
-      errors.push(`Typing speed (${charsPerSecond.toFixed(1)} chars/sec) exceeds human limits (${VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND} chars/sec)`);
+    const correctChars = Math.max(0, submission.totalCharacters - submission.errors);
+    const correctCharsPerSecond = correctChars / submission.duration;
+    
+    // Validate correct characters per second (more lenient for stress test with chaos effects)
+    if (correctCharsPerSecond > VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND) {
+      errors.push(`Typing speed (${correctCharsPerSecond.toFixed(1)} correct chars/sec) exceeds human limits (${VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND} chars/sec)`);
     }
     
+    // Also check total chars/sec as a secondary check (more lenient threshold)
+    const totalCharsPerSecond = submission.totalCharacters / submission.duration;
+    if (totalCharsPerSecond > VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND * 1.5) {
+      errors.push(`Total typing speed (${totalCharsPerSecond.toFixed(1)} chars/sec) exceeds reasonable limits (${(VALIDATION_CONSTANTS.MAX_CHARS_PER_SECOND * 1.5).toFixed(1)} chars/sec)`);
+    }
+
     // Also validate that survivalTime is reasonable relative to duration
     if (submission.survivalTime > submission.duration * 1.1) {
       errors.push(`Survival time (${submission.survivalTime}s) exceeds test duration (${submission.duration}s)`);
@@ -95,17 +106,23 @@ export async function validateStressTestSubmission(
     requiresManualReview = true;
   }
 
+  // WPM validation: Client sends net WPM (based on correct chars), server should validate against correct chars
+  // This prevents false positives when comparing net WPM vs gross WPM
   if (submission.totalCharacters > 0 && submission.duration > 0) {
-    const calculatedWpm = Math.round((submission.totalCharacters / 5) / (submission.duration / 60));
-    const wpmDifference = Math.abs(calculatedWpm - submission.wpm);
-    if (wpmDifference > 20) {
-      flags.push(`wpm_mismatch:claimed=${submission.wpm},calculated=${calculatedWpm}`);
+    const correctChars = Math.max(0, submission.totalCharacters - submission.errors);
+    // Calculate net WPM using correct characters (matches client calculation)
+    const calculatedNetWpm = Math.round((correctChars / 5) / (submission.duration / 60));
+    const wpmDifference = Math.abs(calculatedNetWpm - submission.wpm);
+    
+    // Only flag if there's a significant mismatch (increased threshold for stress test)
+    if (wpmDifference > VALIDATION_CONSTANTS.WPM_MISMATCH_THRESHOLD) {
+      flags.push(`wpm_mismatch:claimed=${submission.wpm},calculated=${calculatedNetWpm}`);
     }
   }
 
   try {
     const userTests = await storage.getUserStressTests(submission.userId, 5);
-    
+
     if (userTests.length === 0) {
       if (submission.wpm > VALIDATION_CONSTANTS.SUSPICIOUS_FIRST_ATTEMPT_WPM) {
         flags.push(`suspicious_first_attempt:${submission.wpm}wpm`);
@@ -116,7 +133,7 @@ export async function validateStressTestSubmission(
       if (recentSameDifficulty.length > 0) {
         const avgPreviousWpm = recentSameDifficulty.reduce((sum, t) => sum + t.wpm, 0) / recentSameDifficulty.length;
         const wpmImprovement = submission.wpm - avgPreviousWpm;
-        
+
         if (wpmImprovement > VALIDATION_CONSTANTS.PROGRESSION_THRESHOLD_WPM) {
           flags.push(`sudden_improvement:+${Math.round(wpmImprovement)}wpm`);
           requiresManualReview = true;

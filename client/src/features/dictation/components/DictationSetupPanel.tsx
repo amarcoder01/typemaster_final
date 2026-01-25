@@ -1,10 +1,9 @@
-import { 
-  Settings2, 
-  Play, 
-  Volume2, 
-  Clock, 
-  Target, 
-  Hash, 
+import {
+  Settings2,
+  Play,
+  Volume2,
+  Target,
+  Hash,
   RotateCcw,
   Languages,
   Mic,
@@ -12,7 +11,9 @@ import {
   ChevronRight,
   Gauge,
   BookOpen,
-  Timer
+  Timer,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingDots } from '@/components/ui/loading-dots';
@@ -25,9 +26,9 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { ChallengeTimePreview } from './ChallengeTimePreview';
-import type { 
-  DifficultyLevel, 
-  AdaptiveDifficultyConfig 
+import type {
+  DifficultyLevel,
+  AdaptiveDifficultyConfig
 } from '../types';
 import { CATEGORIES } from '../types';
 
@@ -40,23 +41,25 @@ interface DictationSetupPanelProps {
   openAIVoices: { id: string; name: string }[];
   currentRate: number;
   adaptiveDifficulty: AdaptiveDifficultyConfig;
-  
+
   isChallenge?: boolean;
   challengePerSentenceMs?: number | null;
   challengeTotalSessionMs?: number | null;
   isPreviewLoading?: boolean;
-  
+
   onDifficultyChange: (difficulty: DifficultyLevel) => void;
   onSpeedLevelChange: (speed: string) => void;
   onCategoryChange: (category: string) => void;
   onSessionLengthChange: (length: number) => void;
   onOpenAIVoiceChange: (voice: string) => void;
   onAdaptiveDifficultyToggle: () => void;
-  
+
   onStartSession: () => void;
   onChangeMode: () => void;
-  
+
   isLoading?: boolean;
+  loadingError?: string | null;
+  onRetry?: () => void;
 }
 
 const DIFFICULTY_COLORS: Record<DifficultyLevel, string> = {
@@ -91,9 +94,9 @@ export function DictationSetupPanel({
   onStartSession,
   onChangeMode,
   isLoading = false,
+  loadingError = null,
+  onRetry,
 }: DictationSetupPanelProps) {
-  
-  const estimatedMinutes = Math.ceil((sessionLength * 30) / 60);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -108,13 +111,9 @@ export function DictationSetupPanel({
                 </div>
                 Session Configuration
               </CardTitle>
-              <Badge variant="outline" className="text-xs font-normal hidden sm:flex">
-                <Clock className="w-3 h-3 mr-1" />
-                ~{estimatedMinutes} min
-              </Badge>
             </div>
           </CardHeader>
-          
+
           <CardContent className="space-y-6 pt-6">
             {/* Content Settings Section */}
             <section aria-label="Content settings">
@@ -124,17 +123,17 @@ export function DictationSetupPanel({
                   Content
                 </h3>
               </div>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
                 <div className="space-y-2.5">
                   <Label className="text-sm font-medium">Difficulty Level</Label>
-                  <Select 
-                    value={difficulty} 
+                  <Select
+                    value={difficulty}
                     onValueChange={(val) => onDifficultyChange(val as DifficultyLevel)}
                     disabled={adaptiveDifficulty.enabled}
                   >
-                    <SelectTrigger 
-                      className="h-11" 
+                    <SelectTrigger
+                      className="h-11"
                       data-testid="select-difficulty"
                     >
                       <SelectValue />
@@ -196,7 +195,7 @@ export function DictationSetupPanel({
                   Audio Experience
                 </h3>
               </div>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
                 <div className="space-y-2.5">
                   <Label className="text-sm font-medium">Voice Style</Label>
@@ -252,7 +251,7 @@ export function DictationSetupPanel({
                   Session Length
                 </h3>
               </div>
-              
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Number of Sentences</Label>
@@ -277,34 +276,59 @@ export function DictationSetupPanel({
               </div>
             </section>
           </CardContent>
-          
-          <CardFooter className="bg-muted/10 border-t border-border/30 p-4 sm:p-5 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-            <Button 
-              variant="outline" 
-              onClick={onChangeMode}
-              className="order-2 sm:order-1"
-              data-testid="button-change-mode"
-            >
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Change Mode
-            </Button>
-            <Button 
-              size="lg" 
-              onClick={onStartSession} 
-              disabled={isLoading}
-              className="order-1 sm:order-2 px-6 sm:px-8 shadow-md shadow-primary/20 font-semibold"
-              data-testid="button-start-session"
-            >
-              {isLoading ? (
-                <LoadingDots text="Preparing" size="md" />
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2 fill-current" />
-                  Start Session
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </>
-              )}
-            </Button>
+
+          <CardFooter className="bg-muted/10 border-t border-border/30 p-4 sm:p-5 flex flex-col gap-3">
+            {/* Error message with retry button */}
+            {loadingError && (
+              <div className="w-full flex items-center justify-between gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                <div className="flex items-center gap-2 text-sm text-destructive">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{loadingError}</span>
+                </div>
+                {onRetry && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onRetry}
+                    className="shrink-0"
+                    data-testid="button-retry"
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Retry
+                  </Button>
+                )}
+              </div>
+            )}
+            
+            {/* Action buttons */}
+            <div className="w-full flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={onChangeMode}
+                className="order-2 sm:order-1"
+                data-testid="button-change-mode"
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Change Mode
+              </Button>
+              <Button
+                size="lg"
+                onClick={onStartSession}
+                disabled={isLoading || !!loadingError}
+                className="order-1 sm:order-2 px-6 sm:px-8 shadow-md shadow-primary/20 font-semibold"
+                data-testid="button-start-session"
+              >
+                {isLoading ? (
+                  <LoadingDots text="Preparing" size="md" />
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 mr-2 fill-current" />
+                    Start Session
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </>
+                )}
+              </Button>
+            </div>
           </CardFooter>
         </Card>
 
@@ -318,7 +342,7 @@ export function DictationSetupPanel({
               isLoading={isPreviewLoading}
             />
           )}
-          
+
           {/* Adaptive Mode Card */}
           <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-transparent">
             <CardHeader className="pb-3">
@@ -335,8 +359,8 @@ export function DictationSetupPanel({
             <CardContent className="pt-0">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1 flex-1">
-                  <Label 
-                    htmlFor="adaptive-mode" 
+                  <Label
+                    htmlFor="adaptive-mode"
                     className="cursor-pointer text-sm font-medium"
                   >
                     Auto-adjust difficulty
@@ -378,7 +402,7 @@ export function DictationSetupPanel({
                     <p>Total sentences in this session</p>
                   </TooltipContent>
                 </Tooltip>
-                
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="p-3 bg-background/50 rounded-lg cursor-help">
@@ -393,7 +417,7 @@ export function DictationSetupPanel({
                   </TooltipContent>
                 </Tooltip>
               </div>
-              
+
               <div className="flex items-center justify-between p-3 bg-background/50 rounded-lg">
                 <div className="flex items-center gap-2">
                   <Volume2 className="w-4 h-4 text-muted-foreground" />
@@ -401,9 +425,9 @@ export function DictationSetupPanel({
                 </div>
                 <span className="text-sm font-semibold tabular-nums">{currentRate}x</span>
               </div>
-              
+
               <Separator className="bg-primary/10" />
-              
+
               <div className="text-xs text-muted-foreground leading-relaxed space-y-2">
                 <p className="font-medium text-foreground">Keyboard shortcuts:</p>
                 <div className="flex flex-wrap gap-2">

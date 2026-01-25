@@ -6,7 +6,7 @@ import { useSEO } from '@/lib/seo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import {
   Tooltip,
@@ -116,13 +116,14 @@ function StressLeaderboardContent() {
       <div className="min-h-screen bg-background">
         {/* Header */}
         <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
-          <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="container mx-auto px-3 sm:px-4 h-16 flex items-center justify-between gap-2 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link href="/stress-test">
-                  <Button variant="ghost" size="sm" className="gap-2">
+                  <Button variant="ghost" size="sm" className="gap-1 sm:gap-2 shrink-0">
                     <ArrowLeft className="w-4 h-4" />
-                    Back to Test
+                    <span className="hidden sm:inline">Back to Test</span>
+                    <span className="sm:hidden">Back</span>
                   </Button>
                 </Link>
               </TooltipTrigger>
@@ -134,9 +135,10 @@ function StressLeaderboardContent() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link href="/stress-test">
-                  <Button size="sm" className="gap-2">
+                  <Button size="sm" className="gap-1 sm:gap-2 shrink-0">
                     <Play className="w-4 h-4" />
-                    Take the Test
+                    <span className="hidden sm:inline">Take the Test</span>
+                    <span className="sm:hidden">Test</span>
                   </Button>
                 </Link>
               </TooltipTrigger>
@@ -147,8 +149,8 @@ function StressLeaderboardContent() {
           </div>
         </header>
 
-        <main className="container mx-auto px-4 py-12">
-          <div className="max-w-5xl mx-auto">
+        <main className="container mx-auto px-3 sm:px-4 py-8 sm:py-12 max-w-full overflow-x-hidden">
+          <div className="max-w-5xl mx-auto w-full">
             {/* Title */}
             <div className="text-center mb-12">
               <div className="inline-flex items-center gap-3 mb-4">
@@ -307,52 +309,74 @@ function StressLeaderboardContent() {
               </Card>
             )}
 
-            {/* Difficulty Filter */}
-            <Tabs value={selectedDifficulty} onValueChange={handleDifficultyChange} className="mb-8">
-              <TabsList className="flex w-full overflow-x-auto overflow-y-hidden whitespace-nowrap h-auto sm:h-12 p-1 bg-muted/50 rounded-lg border border-transparent sm:border-slate-800/50 gap-0.5 sm:gap-1 pr-1 sm:pr-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x sm:snap-none">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <TabsTrigger
-                      value="all"
-                      className={`relative gap-1 font-bold transition-all duration-300 flex-shrink-0 overflow-hidden snap-start rounded-md whitespace-nowrap px-2 sm:px-3 py-2 sm:py-2.5 text-xs sm:text-sm ${selectedDifficulty === 'all'
-                          ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
-                          : 'hover:bg-muted'
-                        }`}
-                    >
-                      All
-                    </TabsTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View all leaderboard entries across all difficulties</p>
-                  </TooltipContent>
-                </Tooltip>
+            {/* Difficulty Filter - Dropdown (always visible, tabs hidden) */}
+            <div className="mb-6">
+              <label className="text-sm font-medium text-muted-foreground mb-2 block">Select Difficulty</label>
+              <select
+                value={selectedDifficulty}
+                onChange={(e) => handleDifficultyChange(e.target.value)}
+                className="w-full h-12 px-4 rounded-lg bg-muted/50 border border-slate-700 text-foreground font-medium focus:outline-none focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%239ca3af\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+              >
+                <option value="all">🏆 All Difficulties</option>
+                <option value="beginner">🔥 Warm-Up (Easy)</option>
+                <option value="intermediate">⚡ Mind Scrambler (Medium)</option>
+                <option value="expert">💀 Absolute Mayhem (Hard)</option>
+                <option value="nightmare">☠️ Nightmare Realm (Extreme)</option>
+                <option value="impossible">🌀 IMPOSSIBLE (Legendary)</option>
+              </select>
+            </div>
 
-                {(['beginner', 'intermediate', 'expert', 'nightmare', 'impossible'] as const).map((diff) => (
-                  <Tooltip key={diff}>
+            {/* Tabs completely hidden - dropdown is used on all screen sizes */}
+            <div className="hidden">
+              <Tabs value={selectedDifficulty} onValueChange={handleDifficultyChange} className="w-full">
+                <TabsList className="flex w-auto h-12 p-1 bg-muted/50 rounded-lg border border-slate-800/50 gap-1.5 inline-flex">
+                  <Tooltip>
                     <TooltipTrigger asChild>
                       <TabsTrigger
-                        value={diff}
-                        className={`relative gap-1 font-bold transition-all duration-300 flex-shrink-0 overflow-hidden snap-start rounded-md whitespace-nowrap px-2 sm:px-3 py-2 sm:py-2.5 text-xs sm:text-sm ${selectedDifficulty === diff
-                            ? 'text-white shadow-lg'
+                        value="all"
+                        className={`relative font-bold transition-all duration-300 flex-shrink-0 rounded-md px-4 py-2.5 text-sm whitespace-nowrap ${selectedDifficulty === 'all'
+                            ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30'
                             : 'hover:bg-muted'
                           }`}
-                        style={selectedDifficulty === diff ? {
-                          backgroundColor: DIFFICULTY_COLORS[diff],
-                          boxShadow: `0 4px 15px ${DIFFICULTY_COLORS[diff]}50`
-                        } : {}}
                       >
-                        <span>{DIFFICULTY_ICONS[diff]}</span>
-                        <span className="hidden sm:inline capitalize">{diff}</span>
+                        All
                       </TabsTrigger>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Filter by {DIFFICULTY_LABELS[diff]} - may cause extreme frustration!</p>
+                      <p>View all leaderboard entries across all difficulties</p>
                     </TooltipContent>
                   </Tooltip>
-                ))}
-              </TabsList>
 
-              <TabsContent value={selectedDifficulty} className="mt-4">
+                  {(['beginner', 'intermediate', 'expert', 'nightmare', 'impossible'] as const).map((diff) => (
+                    <Tooltip key={diff}>
+                      <TooltipTrigger asChild>
+                        <TabsTrigger
+                          value={diff}
+                          className={`relative font-bold transition-all duration-300 flex-shrink-0 rounded-md px-3 py-2.5 text-sm whitespace-nowrap ${selectedDifficulty === diff
+                              ? 'text-white shadow-lg'
+                              : 'hover:bg-muted'
+                            }`}
+                          style={selectedDifficulty === diff ? {
+                            backgroundColor: DIFFICULTY_COLORS[diff],
+                            boxShadow: `0 4px 15px ${DIFFICULTY_COLORS[diff]}50`
+                          } : {}}
+                        >
+                          <span className="text-lg">{DIFFICULTY_ICONS[diff]}</span>
+                          <span className="ml-1.5">{DIFFICULTY_LABELS[diff]}</span>
+                        </TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Filter by {DIFFICULTY_LABELS[diff]} - may cause extreme frustration!</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
+
+            {/* Leaderboard Content */}
+            <div>
                 <Card>
                   <CardContent className="p-0">
                     {isError ? (
@@ -470,14 +494,6 @@ function StressLeaderboardContent() {
                               <p>Typing accuracy percentage despite the visual chaos</p>
                             </TooltipContent>
                           </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="text-center cursor-help">Done</div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Text completion rate - how much they typed before time ran out</p>
-                            </TooltipContent>
-                          </Tooltip>
                         </div>
 
                         {leaderboard.map((entry: any, index: number) => {
@@ -550,9 +566,6 @@ function StressLeaderboardContent() {
                                     <div className="text-[10px] uppercase text-muted-foreground">Acc</div>
                                     <div className="text-base font-semibold">{entry.accuracy.toFixed(1)}%</div>
                                   </div>
-                                </div>
-                                <div className="text-center text-xs text-muted-foreground">
-                                  Done: <span className="font-medium text-foreground">{entry.completionRate.toFixed(0)}%</span>
                                 </div>
                               </div>
 
@@ -684,19 +697,6 @@ function StressLeaderboardContent() {
                                     <p>{entry.accuracy.toFixed(1)}% accuracy despite visual distortions!</p>
                                   </TooltipContent>
                                 </Tooltip>
-
-                                {/* Completion */}
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="text-center cursor-help hidden md:block">
-                                      <div className="text-lg font-semibold">{entry.completionRate.toFixed(0)}%</div>
-                                      <div className="text-[10px] text-muted-foreground uppercase">Done</div>
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Completed {entry.completionRate.toFixed(0)}% of the text under extreme pressure</p>
-                                  </TooltipContent>
-                                </Tooltip>
                               </div>
                             </div>
                           );
@@ -775,8 +775,7 @@ function StressLeaderboardContent() {
                     )}
                   </CardContent>
                 </Card>
-              </TabsContent>
-            </Tabs>
+            </div>
           </div>
         </main>
       </div>

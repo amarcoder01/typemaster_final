@@ -288,7 +288,6 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
       { key: "stressScore", label: "Score", width: "w-20", align: "center", tooltip: "Stress test score" },
       { key: "wpm", label: "WPM", width: "w-16", align: "center" },
       { key: "accuracy", label: "Acc", width: "w-16", align: "center" },
-      { key: "completionRate", label: "Done", width: "w-16", align: "center", tooltip: "Completion rate" },
     ],
     color: "text-orange-500",
     bgColor: "bg-orange-500/10",

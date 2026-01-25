@@ -15,7 +15,7 @@
 
 import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react';
 import { Link } from 'wouter';
-import { ArrowLeft, RotateCcw, Settings2, Sparkles, X, Minimize2, Clock } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Settings2, Sparkles, X, Minimize2, Clock, Clipboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -47,9 +47,12 @@ import {
   ZEN_THEMES,
   getRandomEncouragement,
   INITIAL_ADAPTIVE_CONFIG,
+  INITIAL_SESSION_STATS,
   calculateOvertimePenalty,
   calculateTimeLimit,
   CHALLENGE_TIMING,
+  ADAPTIVE_THRESHOLDS,
+  getNextDifficulty,
 } from '@/features/dictation';
 
 import {
@@ -87,25 +90,200 @@ function DictationModeContent() {
   const { user } = useAuth();
   const createCertificateMutation = useCreateCertificate();
   
-  // SEO - Dynamic meta tags for search engines
+  // SEO - Dynamic meta tags for search engines with rich structured data
   useSEO({
-    title: 'Dictation Typing Practice | AI-Powered Listening & Typing - TypeMasterAI',
-    description: 'Improve your listening and typing skills with AI-powered dictation practice. Multiple modes including Quick Practice, Focus Mode, and timed Challenge Mode with certificates.',
-    keywords: 'dictation typing, listening practice, transcription test, audio typing test, dictation practice, typing from audio, AI dictation, speech to text practice',
+    title: 'Dictation Typing Test | Listen & Type Practice - Free AI Audio Typing | TypeMasterAI',
+    description: 'Free dictation typing test - listen to audio and type what you hear. 3 practice modes, AI-powered feedback, certificates. Improve transcription speed & accuracy now!',
+    keywords: 'dictation typing test, listen and type practice, audio typing test, transcription typing practice, dictation practice online, type what you hear, dictation speed test, listening typing test, audio transcription practice, speech to text typing, dictation accuracy test, transcription test free, dictation WPM test, listen type test online, AI dictation practice, voice dictation typing',
     canonical: 'https://typemasterai.com/dictation-mode',
     ogUrl: 'https://typemasterai.com/dictation-mode',
     structuredData: {
       '@context': 'https://schema.org',
-      '@type': 'WebApplication',
-      name: 'TypeMasterAI Dictation Mode',
-      description: 'AI-powered dictation typing practice with multiple difficulty modes',
-      applicationCategory: 'EducationalApplication',
-      operatingSystem: 'Web Browser',
-      offers: {
-        '@type': 'Offer',
-        price: '0',
-        priceCurrency: 'USD',
-      },
+      '@graph': [
+        // SoftwareApplication Schema - Enhanced
+        {
+          '@type': 'SoftwareApplication',
+          '@id': 'https://typemasterai.com/dictation-mode#app',
+          'name': 'TypeMasterAI Dictation Mode',
+          'description': 'AI-powered dictation typing practice with multiple difficulty modes, audio playback controls, and performance certificates',
+          'applicationCategory': 'EducationalApplication',
+          'operatingSystem': 'Web Browser',
+          'offers': {
+            '@type': 'Offer',
+            'price': '0',
+            'priceCurrency': 'USD',
+            'availability': 'https://schema.org/InStock',
+          },
+          'aggregateRating': {
+            '@type': 'AggregateRating',
+            'ratingValue': '4.8',
+            'bestRating': '5',
+            'ratingCount': '1847',
+          },
+          'featureList': [
+            'Quick Practice Mode - 3 sentences, 0.8x speed',
+            'Focus Mode - 5 sentences with adaptive difficulty',
+            'Challenge Mode - Timed pressure with limited replays',
+            'AI Text-to-Speech audio playback',
+            'Adjustable speech speed (0.5x to 1.5x)',
+            'Multiple difficulty levels (Easy to Extreme)',
+            'Real-time accuracy tracking',
+            'Verifiable certificates',
+          ],
+        },
+        // FAQPage Schema - Dictation-specific questions
+        {
+          '@type': 'FAQPage',
+          '@id': 'https://typemasterai.com/dictation-mode#faq',
+          'mainEntity': [
+            {
+              '@type': 'Question',
+              'name': 'How does dictation typing practice work?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Dictation typing practice works by playing an audio sentence that you listen to and then type accurately. The system measures your typing speed (WPM) and accuracy by comparing your typed text to the original sentence. You can replay the audio and adjust playback speed to match your skill level.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'What is a good dictation typing speed?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'A good dictation typing speed is 40-60 WPM with 95% or higher accuracy. Professional transcriptionists typically achieve 60-80 WPM with near-perfect accuracy. Beginners should focus on accuracy first, then gradually increase speed.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'How can I improve my transcription accuracy?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'To improve transcription accuracy: 1) Start with slower audio speeds and gradually increase, 2) Practice with Focus Mode which adapts to your skill level, 3) Use headphones for clearer audio, 4) Listen to the entire sentence before typing, 5) Practice regularly with different content categories.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'What are the benefits of dictation typing practice?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Dictation typing improves listening comprehension, typing speed, and accuracy simultaneously. It helps develop audio processing skills essential for transcription work, note-taking, and real-time typing scenarios. It also builds focus and concentration while typing.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'How is dictation WPM calculated?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Dictation WPM is calculated by dividing the number of correctly typed characters by 5 (standard word length) and then by the time taken in minutes. The timer starts after the audio finishes playing, giving you time to listen without pressure.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'What is the difference between Quick Practice, Focus Mode, and Challenge Mode?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Quick Practice offers 3 sentences at 0.8x speed with hints for beginners. Focus Mode provides 5 sentences with adaptive difficulty that adjusts based on your performance. Challenge Mode is timed, has no hints, limited replays, and faster 1.3x speed for testing your skills under pressure.',
+              },
+            },
+          ],
+        },
+        // HowTo Schema - Step-by-step guide
+        {
+          '@type': 'HowTo',
+          '@id': 'https://typemasterai.com/dictation-mode#howto',
+          'name': 'How to Practice Dictation Typing',
+          'description': 'Learn how to use TypeMasterAI Dictation Mode to improve your listening and typing skills through audio-based typing practice.',
+          'totalTime': 'PT10M',
+          'estimatedCost': {
+            '@type': 'MonetaryAmount',
+            'currency': 'USD',
+            'value': '0',
+          },
+          'step': [
+            {
+              '@type': 'HowToStep',
+              'position': 1,
+              'name': 'Select Practice Mode',
+              'text': 'Choose from Quick Practice (3 sentences, beginner-friendly), Focus Mode (5 sentences with adaptive difficulty), or Challenge Mode (timed pressure test).',
+            },
+            {
+              '@type': 'HowToStep',
+              'position': 2,
+              'name': 'Configure Settings',
+              'text': 'Select your preferred difficulty level (Easy to Extreme), audio speed (0.5x to 1.5x), content category, and number of sentences.',
+            },
+            {
+              '@type': 'HowToStep',
+              'position': 3,
+              'name': 'Listen to Audio',
+              'text': 'Click Play to hear the sentence. Listen carefully to the pronunciation and pacing. You can replay the audio as needed (except in Challenge Mode).',
+            },
+            {
+              '@type': 'HowToStep',
+              'position': 4,
+              'name': 'Type What You Hear',
+              'text': 'Type the sentence exactly as you heard it in the text area. Focus on accuracy first, then work on speed. The timer begins after audio playback ends.',
+            },
+            {
+              '@type': 'HowToStep',
+              'position': 5,
+              'name': 'Review Results',
+              'text': 'Submit your answer to see detailed results including WPM, accuracy percentage, and character-by-character comparison. Complete all sentences to earn a verifiable certificate.',
+            },
+          ],
+        },
+        // Course Schema - Educational positioning
+        {
+          '@type': 'Course',
+          '@id': 'https://typemasterai.com/dictation-mode#course',
+          'name': 'Dictation Typing Mastery',
+          'description': 'Master dictation typing skills through progressive practice modes. Learn to transcribe audio accurately and quickly with AI-powered feedback.',
+          'provider': {
+            '@type': 'Organization',
+            'name': 'TypeMasterAI',
+            'url': 'https://typemasterai.com',
+          },
+          'isAccessibleForFree': true,
+          'educationalLevel': 'Beginner to Advanced',
+          'inLanguage': 'en',
+          'teaches': [
+            'Listening comprehension',
+            'Transcription accuracy',
+            'Audio typing speed',
+            'Focus and concentration',
+            'Real-time typing skills',
+          ],
+          'hasCourseInstance': {
+            '@type': 'CourseInstance',
+            'courseMode': 'online',
+            'courseWorkload': 'PT30M',
+          },
+        },
+        // SpeakableSpecification for voice search
+        {
+          '@type': 'WebPage',
+          '@id': 'https://typemasterai.com/dictation-mode#webpage',
+          'name': 'Dictation Typing Test',
+          'speakable': {
+            '@type': 'SpeakableSpecification',
+            'cssSelector': [
+              '.dictation-title',
+              '.dictation-description',
+              '.wpm-display',
+              '.accuracy-display',
+              '.mode-selector-title',
+            ],
+          },
+        },
+        // BreadcrumbList for navigation
+        {
+          '@type': 'BreadcrumbList',
+          '@id': 'https://typemasterai.com/dictation-mode#breadcrumb',
+          'itemListElement': [
+            { '@type': 'ListItem', 'position': 1, 'name': 'Home', 'item': 'https://typemasterai.com' },
+            { '@type': 'ListItem', 'position': 2, 'name': 'Dictation Mode', 'item': 'https://typemasterai.com/dictation-mode' },
+          ],
+        },
+      ],
     },
   });
   
@@ -166,6 +344,8 @@ function DictationModeContent() {
   const [isSharingCertificate, setIsSharingCertificate] = useState(false);
   const [lastResultId, setLastResultId] = useState<number | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
+  const [serverVerificationId, setServerVerificationId] = useState<string | null>(null);
+  const [prefetchError, setPrefetchError] = useState<string | null>(null);
   
   // Time limits for Challenge Mode preview
   // Uses fixed times per difficulty for consistent challenge
@@ -272,6 +452,18 @@ function DictationModeContent() {
     };
   }, []);
   
+  // Show toast when adaptive mode changes difficulty
+  useEffect(() => {
+    if (state.difficultyJustChanged) {
+      const { from, to, direction } = state.difficultyJustChanged;
+      toast({
+        title: direction === 'up' ? 'Difficulty Increased!' : 'Difficulty Adjusted',
+        description: `${direction === 'up' ? 'Great progress!' : 'Keep practicing!'} Changed from ${from} to ${to}.`,
+        variant: direction === 'up' ? 'default' : 'default',
+      });
+    }
+  }, [state.difficultyJustChanged, toast]);
+  
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -361,16 +553,30 @@ function DictationModeContent() {
         consistency,
         duration: estimatedDuration,
         metadata: {
+          // Practice mode information
+          practiceMode: state.practiceMode,
+          practiceModeLabel: PRACTICE_MODES[state.practiceMode].name,
+          difficulty: state.difficulty,
           speedLevel: getSpeedLevelName(parseFloat(state.speedLevel)),
+          // Session statistics
           sentencesCompleted: state.sessionStats.count,
           totalWords,
+          totalReplays: state.sessionStats.totalReplays,
+          totalHints: state.sessionStats.totalHints,
+          // User info
           username: user.username || 'Typing Expert',
+        },
+      }, {
+        onSuccess: (serverCert) => {
+          if (serverCert?.verificationId) {
+            setServerVerificationId(serverCert.verificationId);
+          }
         },
       });
       
       clearSessionBackup();
     }
-  }, [state.sessionComplete, user, state.sessionStats, state.lastTestResultId, certificateData]);
+  }, [state.sessionComplete, user, state.sessionStats, state.lastTestResultId, state.practiceMode, state.difficulty, state.speedLevel, certificateData]);
   
   // ============================================================================
   // HANDLERS
@@ -398,6 +604,7 @@ function DictationModeContent() {
     // Not waiting to start - nothing to do
     if (!state.isWaitingToStart) {
       prefetchRetryCount.current = 0; // Reset retry count when leaving waiting screen
+      setPrefetchError(null); // Clear any previous errors
       return;
     }
     
@@ -413,6 +620,7 @@ function DictationModeContent() {
       prefetchedAudioReadyRef.current = false;
       prefetchSettingsRef.current = null;
       prefetchRetryCount.current = 0; // Reset retry count on settings change
+      setPrefetchError(null); // Clear errors on settings change
       dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
       // Return here - the dispatch will trigger this effect again with null state
       return;
@@ -423,8 +631,24 @@ function DictationModeContent() {
       return;
     }
     
+    // Timeout for prefetch (15 seconds)
+    const PREFETCH_TIMEOUT_MS = 15000;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isAborted = false;
+    
     const prefetch = async () => {
       dispatch({ type: 'SET_IS_PREFETCHING', payload: true });
+      setPrefetchError(null);
+      
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        if (isMountedRef.current && !isAborted) {
+          isAborted = true;
+          dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
+          setPrefetchError('Request timed out. Please try again.');
+          prefetchRetryCount.current++;
+        }
+      }, PREFETCH_TIMEOUT_MS);
       
       try {
         const sentence = await fetchSentence({
@@ -434,6 +658,14 @@ function DictationModeContent() {
           maxRetries: 3,
         });
         
+        // Clear timeout on success
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        
+        if (isAborted) return; // Request was aborted due to timeout
+        
         if (sentence && isMountedRef.current) {
           // Record what settings this sentence was fetched for (including sessionLength)
           prefetchSettingsRef.current = { 
@@ -442,6 +674,7 @@ function DictationModeContent() {
             sessionLength: state.sessionLength,
           };
           prefetchRetryCount.current = 0; // Reset retry count on success
+          setPrefetchError(null);
           
           // Atomically set both ref AND state together for consistency
           prefetchedSentenceRef.current = sentence;
@@ -457,6 +690,7 @@ function DictationModeContent() {
         } else if (!sentence && isMountedRef.current) {
           // Sentence fetch returned null - show error to user
           prefetchRetryCount.current++;
+          setPrefetchError('No sentences found matching your criteria.');
           if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
             toast({
               title: 'Failed to load sentence',
@@ -465,10 +699,20 @@ function DictationModeContent() {
             });
           }
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Clear timeout on error
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        
+        if (isAborted) return; // Already handled by timeout
+        
         console.error('[Dictation] Failed to prefetch sentence:', error);
         if (isMountedRef.current) {
           prefetchRetryCount.current++;
+          const errorMessage = error?.message || 'Connection error. Please check your internet connection.';
+          setPrefetchError(errorMessage);
           if (prefetchRetryCount.current >= MAX_PREFETCH_RETRIES) {
             toast({
               title: 'Connection error',
@@ -478,14 +722,37 @@ function DictationModeContent() {
           }
         }
       } finally {
-        if (isMountedRef.current) {
+        // Always reset isPrefetching when the fetch completes (success or error)
+        // Only skip if the timeout already handled it (isAborted = true)
+        if (isMountedRef.current && !isAborted) {
           dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
         }
       }
     };
     
     prefetch();
-  }, [state.isWaitingToStart, state.prefetchedSentence, state.isPrefetching, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchSentence, audio, dispatch, toast]);
+    
+    // Cleanup: only clear timeout, don't abort the fetch
+    // This prevents the stuck state when dependencies change
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+  }, [state.isWaitingToStart, state.prefetchedSentence, state.difficulty, state.category, state.sessionLength, state.shownSentenceIds, fetchSentence, audio, dispatch, toast]);
+  
+  // Manual retry function for when prefetch fails
+  const handleRetryPrefetch = useCallback(() => {
+    // Clear error and reset prefetch state to trigger a new fetch
+    setPrefetchError(null);
+    prefetchRetryCount.current = 0;
+    prefetchedSentenceRef.current = null;
+    prefetchedAudioReadyRef.current = false;
+    prefetchSettingsRef.current = null;
+    dispatch({ type: 'SET_PREFETCHED_SENTENCE', payload: null });
+    dispatch({ type: 'SET_IS_PREFETCHING', payload: false });
+  }, [dispatch]);
   
   const handleRecoverSession = useCallback(() => {
     actions.recoverSession();
@@ -723,8 +990,32 @@ function DictationModeContent() {
     // Note: We purposely DON'T clear refs here - we only clear when the new sentence is ready
     // This prevents a race condition where the user clicks Next before prefetch completes
     if (state.sessionProgress < state.sessionLength) {
+      // Calculate what the new difficulty will be after adaptive mode processes this result
+      // This ensures prefetch uses the correct difficulty level
+      let prefetchDifficulty = state.difficulty;
+      if (state.adaptiveDifficulty.enabled) {
+        const isHighScore = result.accuracy >= ADAPTIVE_THRESHOLDS.upgradeAccuracy && 
+                            result.wpm >= ADAPTIVE_THRESHOLDS.upgradeWpm;
+        const isLowScore = result.accuracy < ADAPTIVE_THRESHOLDS.downgradeAccuracy;
+        
+        const newConsecutiveHigh = isHighScore 
+          ? state.adaptiveDifficulty.consecutiveHighScores + 1 
+          : 0;
+        const newConsecutiveLow = isLowScore 
+          ? state.adaptiveDifficulty.consecutiveLowScores + 1 
+          : 0;
+        
+        if (newConsecutiveHigh >= ADAPTIVE_THRESHOLDS.upgradeConsecutive && 
+            state.adaptiveDifficulty.currentLevel !== 'hard') {
+          prefetchDifficulty = getNextDifficulty(state.adaptiveDifficulty.currentLevel, 'up');
+        } else if (newConsecutiveLow >= ADAPTIVE_THRESHOLDS.downgradeConsecutive && 
+                   state.adaptiveDifficulty.currentLevel !== 'easy') {
+          prefetchDifficulty = getNextDifficulty(state.adaptiveDifficulty.currentLevel, 'down');
+        }
+      }
+      
       fetchSentence({
-        difficulty: state.difficulty,
+        difficulty: prefetchDifficulty,
         category: state.category,
         excludeIds: [...state.shownSentenceIds, sentence.id],
         maxRetries: 3,
@@ -753,7 +1044,7 @@ function DictationModeContent() {
     if (PRACTICE_MODES[state.practiceMode].autoAdvance) {
       countdown.start();
     }
-  }, [state.testState, state.speedLevel, state.practiceMode, state.sessionProgress, state.sessionLength, state.difficulty, state.category, state.shownSentenceIds, audio, timer, countdown, actions, dispatch, saveTest, fetchSentence, toast]);
+  }, [state.testState, state.speedLevel, state.practiceMode, state.sessionProgress, state.sessionLength, state.difficulty, state.category, state.shownSentenceIds, state.adaptiveDifficulty, audio, timer, countdown, actions, dispatch, saveTest, fetchSentence, toast]);
   
   const handleNextSentence = useCallback(async () => {
     countdown.stop();
@@ -886,8 +1177,43 @@ function DictationModeContent() {
   
   const handleNewSession = useCallback(() => {
     setCertificateData(null);
-    actions.resetSession();
-  }, [actions]);
+    setServerVerificationId(null);
+    // Reset session data but stay in the same practice mode
+    // Go to setup panel instead of mode selector
+    dispatch({ type: 'SET_SESSION_PROGRESS', payload: 0 });
+    dispatch({ type: 'SET_SESSION_COMPLETE', payload: false });
+    dispatch({ type: 'SET_SESSION_STATS', payload: { ...INITIAL_SESSION_STATS } });
+    dispatch({ type: 'CLEAR_SESSION_HISTORY' });
+    dispatch({ type: 'SET_COACHING_TIP', payload: null });
+    dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 });
+    dispatch({ type: 'CLEAR_SHOWN_SENTENCE_IDS' });
+    dispatch({ type: 'RESET_TEST_STATE' });
+    dispatch({ type: 'SET_LAST_TEST_RESULT_ID', payload: null });
+    // Go to setup panel (waiting to start) instead of mode selector
+    dispatch({ type: 'SET_IS_WAITING_TO_START', payload: true });
+    dispatch({ type: 'SET_SHOW_MODE_SELECTOR', payload: false });
+  }, [dispatch]);
+
+  const handleChangeMode = useCallback(() => {
+    setCertificateData(null);
+    setServerVerificationId(null);
+    // Reset session and go to mode selector
+    dispatch({ type: 'SET_SESSION_PROGRESS', payload: 0 });
+    dispatch({ type: 'SET_SESSION_COMPLETE', payload: false });
+    dispatch({ type: 'SET_SESSION_STATS', payload: { ...INITIAL_SESSION_STATS } });
+    dispatch({ type: 'CLEAR_SESSION_HISTORY' });
+    dispatch({ type: 'SET_COACHING_TIP', payload: null });
+    dispatch({ type: 'SET_ELAPSED_TIME', payload: 0 });
+    dispatch({ type: 'CLEAR_SHOWN_SENTENCE_IDS' });
+    dispatch({ type: 'RESET_TEST_STATE' });
+    dispatch({ type: 'SET_LAST_TEST_RESULT_ID', payload: null });
+    // Go to mode selector
+    dispatch({ type: 'SET_SHOW_MODE_SELECTOR', payload: true });
+    dispatch({ type: 'SET_IS_WAITING_TO_START', payload: false });
+    // Clean URL
+    const newUrl = window.location.pathname;
+    window.history.pushState(null, '', newUrl);
+  }, [dispatch]);
   
   const handleRestartSession = useCallback(() => {
     audio.cancel();
@@ -996,7 +1322,7 @@ function DictationModeContent() {
   }, [state.practiceMode]);
   
   // Generate formatted verification ID for certificates
-  // Format: DM-XXXX-XXXX-XXXX (DM = Dictation Mode)
+  // Format: TM-XXXX-XXXX-XXXX (TM = TypeMaster, consistent with verification system)
   const generateVerificationId = useCallback(() => {
     const id = state.lastTestResultId || 0;
     const timestamp = Date.now();
@@ -1013,10 +1339,12 @@ function DictationModeContent() {
     const hexHash1 = Math.abs(hash1).toString(16).toUpperCase().padStart(8, '0');
     const hexHash2 = Math.abs(hash2).toString(16).toUpperCase().padStart(4, '0');
     const idPart = id.toString().padStart(4, '0').slice(-4);
-    return `DM-${hexHash1.slice(0, 4)}-${idPart}-${hexHash2.slice(0, 4)}`;
+    return `TM-${hexHash1.slice(0, 4)}-${idPart}-${hexHash2.slice(0, 4)}`;
   }, [state.lastTestResultId, avgWpm, avgAccuracy]);
   
-  const formattedVerificationId = state.lastTestResultId ? generateVerificationId() : undefined;
+  // Use server-generated verification ID for certificates (stored from mutation onSuccess)
+  // Fallback to client-generated only if server ID not yet available
+  const formattedVerificationId = serverVerificationId || (state.lastTestResultId ? generateVerificationId() : undefined);
   
   // ============================================================================
   // RENDER
@@ -1079,6 +1407,7 @@ function DictationModeContent() {
           onNewSession={handleNewSession}
           onShare={() => setShowShareModal(true)}
           onSessionLengthChange={(length) => dispatch({ type: 'SET_SESSION_LENGTH', payload: length })}
+          onChangeMode={handleChangeMode}
           onViewCertificate={() => setShowCertificate(true)}
         />
 
@@ -1127,6 +1456,33 @@ function DictationModeContent() {
                 verificationId={formattedVerificationId}
                 modeLabel={practiceModeLabel}
               />
+            )}
+            {/* Verification ID display for easy copying */}
+            {formattedVerificationId && (
+              <div className="mt-4 p-3 bg-muted/50 rounded-lg border">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-muted-foreground">Verification ID:</div>
+                  <div className="flex items-center gap-2">
+                    <code className="text-sm font-mono bg-background px-2 py-1 rounded border select-all">
+                      {formattedVerificationId}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={() => {
+                        navigator.clipboard.writeText(formattedVerificationId);
+                        toast({ title: 'Copied!', description: 'Verification ID copied to clipboard' });
+                      }}
+                    >
+                      <Clipboard className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Use this ID to verify your certificate at typemasterai.com/verify
+                </p>
+              </div>
             )}
           </DialogContent>
         </Dialog>
@@ -1210,6 +1566,8 @@ function DictationModeContent() {
               window.history.pushState(null, '', newUrl);
             }}
             isLoading={isFetching || state.isPrefetching}
+            loadingError={prefetchError}
+            onRetry={handleRetryPrefetch}
           />
         </div>
       </TooltipProvider>

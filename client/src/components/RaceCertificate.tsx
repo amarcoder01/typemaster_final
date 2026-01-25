@@ -159,7 +159,7 @@ export function RaceCertificate({
 
   useEffect(() => {
     generateCertificate();
-  }, [wpm, accuracy, consistency, placement, totalParticipants, characters, errors, duration, username, qrCodeImage, certificateId]);
+  }, [wpm, accuracy, consistency, placement, totalParticipants, errors, duration, username, qrCodeImage, certificateId]);
 
   const generateCertificate = () => {
     const canvas = canvasRef.current;
@@ -341,7 +341,7 @@ export function RaceCertificate({
     ctx.roundRect(statsBoxX, statsBoxY, statsBoxWidth, statsBoxHeight, 12);
     ctx.stroke();
 
-    // Stats Row: WPM | Accuracy | Characters | Duration
+    // Stats Row: WPM | Accuracy | Consistency | Duration
     const rowY = statsBoxY + 45;
     const statsStartX = statsBoxX + 100;
     const statSpacing = 220;
@@ -371,13 +371,13 @@ export function RaceCertificate({
     ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
     ctx.fillText("|", statsStartX + statSpacing * 1.5, rowY);
 
-    // Characters
-    ctx.fillStyle = "#c084fc";
+    // Consistency
+    ctx.fillStyle = "#fb923c";
     ctx.font = "bold 36px 'JetBrains Mono', monospace";
-    ctx.fillText(`${characters}`, statsStartX + statSpacing * 2, rowY);
+    ctx.fillText(`${consistency}%`, statsStartX + statSpacing * 2, rowY);
     ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
     ctx.font = "12px 'DM Sans', system-ui, sans-serif";
-    ctx.fillText("CHARS", statsStartX + statSpacing * 2, rowY + 22);
+    ctx.fillText("CONSISTENCY", statsStartX + statSpacing * 2, rowY + 22);
 
     // Divider
     ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
@@ -642,7 +642,7 @@ export function RaceCertificate({
           style={{ maxWidth: "100%" }}
           data-testid="certificate-canvas"
         />
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 bg-black/60 rounded-full backdrop-blur-sm border border-white/10">
+        <div className="absolute top-5 left-5 flex items-center gap-1.5 px-3 py-1.5 bg-black/60 rounded-full backdrop-blur-sm border border-white/10">
           <Trophy className="w-3.5 h-3.5" style={{ color: placementVisuals.color }} />
           <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: placementVisuals.color }}>
             {placementVisuals.text}
@@ -693,6 +693,11 @@ export function RaceCertificate({
           </div>
           <p className="text-[10px] text-center text-zinc-500" data-testid="text-race-certificate-id">
             Certificate ID: <span className="font-mono" style={{ color: placementVisuals.color }}>{certificateId}</span>
+            {serverVerificationId ? (
+              <span className="ml-2 text-green-500">✓ Verifiable</span>
+            ) : (
+              <span className="ml-2 text-yellow-500">(Not Verifiable)</span>
+            )}
           </p>
         </div>
       ) : (
@@ -769,6 +774,11 @@ export function RaceCertificate({
 
           <p className="text-[10px] text-center text-zinc-500" data-testid="text-race-certificate-id">
             Certificate ID: <span className="font-mono" style={{ color: placementVisuals.color }}>{certificateId}</span>
+            {serverVerificationId ? (
+              <span className="ml-2 text-green-500">✓ Verifiable</span>
+            ) : (
+              <span className="ml-2 text-yellow-500">(Not Verifiable - Sign in for official certificate)</span>
+            )}
           </p>
         </div>
       )}

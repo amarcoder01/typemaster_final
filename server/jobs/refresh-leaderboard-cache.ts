@@ -27,8 +27,11 @@ export async function refreshLeaderboardViews(): Promise<void> {
     
     const duration = Date.now() - startTime;
     console.log(`[Leaderboard Cache] Successfully refreshed all views in ${duration}ms`);
-  } catch (error) {
-    console.error('[Leaderboard Cache] Error refreshing materialized views:', error);
+  } catch (error: any) {
+    // Suppress quota exceeded errors to avoid log spam
+    if (!error?.message?.includes('compute time quota')) {
+      console.error('[Leaderboard Cache] Error refreshing materialized views:', error);
+    }
     throw error;
   }
 }

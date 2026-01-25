@@ -16,6 +16,38 @@
 import crypto from 'crypto';
 import type { Certificate, VerificationResponse, InsertCertificateVerificationLog } from '@shared/schema';
 
+// ============================================================================
+// Performance Tier Calculation
+// ============================================================================
+
+export interface PerformanceTier {
+  tier: string;
+  title: string;
+  emoji: string;
+}
+
+/**
+ * Calculate performance tier based on WPM and accuracy
+ * Must match the client-side getTypingPerformanceRating function exactly
+ */
+export function getPerformanceTier(wpm: number, accuracy: number, certificateType: string = 'standard'): PerformanceTier {
+  // Code typing has different thresholds (code is harder to type)
+  if (certificateType === 'code') {
+    if (wpm >= 80 && accuracy >= 98) return { tier: "Diamond", title: "Code Master", emoji: "🏆" };
+    if (wpm >= 60 && accuracy >= 95) return { tier: "Platinum", title: "Code Ninja", emoji: "⚡" };
+    if (wpm >= 45 && accuracy >= 90) return { tier: "Gold", title: "Syntax Expert", emoji: "🔥" };
+    if (wpm >= 30 && accuracy >= 85) return { tier: "Silver", title: "Code Writer", emoji: "💪" };
+    return { tier: "Bronze", title: "Code Learner", emoji: "🎯" };
+  }
+  
+  // Standard typing test thresholds
+  if (wpm >= 100 && accuracy >= 98) return { tier: "Diamond", title: "Legendary Typist", emoji: "🏆" };
+  if (wpm >= 80 && accuracy >= 95) return { tier: "Platinum", title: "Speed Demon", emoji: "⚡" };
+  if (wpm >= 60 && accuracy >= 90) return { tier: "Gold", title: "Fast & Accurate", emoji: "🔥" };
+  if (wpm >= 40 && accuracy >= 85) return { tier: "Silver", title: "Solid Performer", emoji: "💪" };
+  return { tier: "Bronze", title: "Rising Star", emoji: "🎯" };
+}
+
 // Configuration
 const ISSUER_NAME = 'TypeMasterAI';
 const ISSUER_URL = 'https://typemasterai.com';
@@ -178,22 +210,38 @@ export function createSignaturePayload(
   verificationId: string,
   issuedAt: Date
 ): SignaturePayload {
+  // Normalize undefined to null for consistent JSON serialization
+  // This ensures the signature is identical whether values are undefined or null
+  const normalizeToNull = <T>(value: T | undefined | null): T | null => 
+    value === undefined || value === null ? null : value;
+  
+  // Normalize metadata: ensure consistent serialization by sorting keys
+  const normalizeMetadata = (metadata: Record<string, any> | null | undefined): Record<string, any> | null => {
+    if (!metadata) return null;
+    // Create a new object with sorted keys for deterministic serialization
+    const sorted: Record<string, any> = {};
+    for (const key of Object.keys(metadata).sort()) {
+      sorted[key] = metadata[key];
+    }
+    return sorted;
+  };
+  
   return {
     verificationId,
     userId: certificate.userId,
     certificateType: certificate.certificateType,
-    wpm: certificate.wpm,
-    accuracy: certificate.accuracy,
-    consistency: certificate.consistency,
-    duration: certificate.duration,
-    testResultId: certificate.testResultId || null,
-    codeTestId: certificate.codeTestId || null,
-    bookTestId: certificate.bookTestId || null,
-    raceId: certificate.raceId || null,
-    dictationTestId: certificate.dictationTestId || null,
-    stressTestId: certificate.stressTestId || null,
+    wpm: Math.round(certificate.wpm), // Ensure integer
+    accuracy: Math.round(certificate.accuracy * 10) / 10, // One decimal place
+    consistency: Math.round(certificate.consistency), // Ensure integer
+    duration: Math.round(certificate.duration), // Ensure integer
+    testResultId: normalizeToNull(certificate.testResultId),
+    codeTestId: normalizeToNull(certificate.codeTestId),
+    bookTestId: normalizeToNull(certificate.bookTestId),
+    raceId: normalizeToNull(certificate.raceId),
+    dictationTestId: normalizeToNull(certificate.dictationTestId),
+    stressTestId: normalizeToNull(certificate.stressTestId),
     issuedAt: issuedAt.toISOString(),
-    metadata: certificate.metadata || null,
+    metadata: normalizeMetadata(certificate.metadata),
   };
 }
 
@@ -207,7 +255,12 @@ export function verifySignature(certificate: Certificate): {
   isValid: boolean;
   error?: string;
 } {
+  const isDevMode = process.env.NODE_ENV !== 'production';
+  
   if (!certificate.verificationId || !certificate.signatureHash || !certificate.issuedAt) {
+    if (isDevMode) {
+      console.log(`[CertVerify] Missing data - verificationId: ${!!certificate.verificationId}, signatureHash: ${!!certificate.signatureHash}, issuedAt: ${!!certificate.issuedAt}`);
+    }
     return {
       isValid: false,
       error: 'Missing verification data',
@@ -222,6 +275,15 @@ export function verifySignature(certificate: Certificate): {
   
   const expectedSignature = generateSignature(payload);
   
+  // Debug logging for development (never log actual signatures in production)
+  if (isDevMode) {
+    console.log(`[CertVerify] Verifying certificate ${certificate.verificationId}`);
+    console.log(`[CertVerify] Payload: type=${payload.certificateType}, wpm=${payload.wpm}, accuracy=${payload.accuracy}, raceId=${payload.raceId}`);
+    console.log(`[CertVerify] Metadata keys: ${payload.metadata ? Object.keys(payload.metadata).join(', ') : 'null'}`);
+    console.log(`[CertVerify] Stored hash prefix: ${certificate.signatureHash.substring(0, 8)}...`);
+    console.log(`[CertVerify] Expected hash prefix: ${expectedSignature.substring(0, 8)}...`);
+  }
+  
   // Constant-time comparison to prevent timing attacks
   try {
     const isValid = crypto.timingSafeEqual(
@@ -229,9 +291,16 @@ export function verifySignature(certificate: Certificate): {
       Buffer.from(expectedSignature, 'hex')
     );
     
+    if (isDevMode && !isValid) {
+      console.warn(`[CertVerify] Signature mismatch for ${certificate.verificationId}`);
+    }
+    
     return { isValid };
   } catch (error) {
     // Buffer length mismatch or other error
+    if (isDevMode) {
+      console.error(`[CertVerify] Verification error for ${certificate.verificationId}:`, error);
+    }
     return {
       isValid: false,
       error: 'Signature verification failed',

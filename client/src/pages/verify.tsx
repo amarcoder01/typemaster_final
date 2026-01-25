@@ -78,6 +78,15 @@ const TIER_COLORS: Record<string, { bg: string; text: string; border: string }> 
   Bronze: { bg: "bg-orange-600/10", text: "text-orange-400", border: "border-orange-600/30" },
 };
 
+// Stress test difficulty display names (for backward compatibility with existing certificates)
+const STRESS_DIFFICULTY_NAMES: Record<string, string> = {
+  beginner: 'Warm-Up',
+  intermediate: 'Mind Scrambler',
+  expert: 'Absolute Mayhem',
+  nightmare: 'Nightmare Realm',
+  impossible: 'IMPOSSIBLE',
+};
+
 export default function VerifyPage() {
   const params = useParams<{ verificationId?: string }>();
   const [, setLocation] = useLocation();
@@ -610,16 +619,98 @@ export default function VerifyPage() {
                 {/* Additional Metadata */}
                 {verificationResult.certificate.metadata && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm p-4 rounded-lg bg-muted/30">
+                    {/* Code Mode fields */}
                     {verificationResult.certificate.metadata.programmingLanguage && (
                       <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
                         <span className="text-muted-foreground">Language</span>
                         <span className="font-medium">{verificationResult.certificate.metadata.programmingLanguage}</span>
                       </div>
                     )}
-                    {verificationResult.certificate.metadata.difficulty && (
+                    
+                    {/* Dictation Mode specific fields */}
+                    {verificationResult.certificate.metadata.practiceModeLabel && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Practice Mode</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.practiceModeLabel}</span>
+                      </div>
+                    )}
+                    {(verificationResult.certificate.metadata.difficulty || verificationResult.certificate.metadata.difficultyName) && (
                       <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
                         <span className="text-muted-foreground">Difficulty</span>
-                        <span className="font-medium">{verificationResult.certificate.metadata.difficulty}</span>
+                        <span className="font-medium">
+                          {verificationResult.certificate.metadata.difficultyName || 
+                           STRESS_DIFFICULTY_NAMES[verificationResult.certificate.metadata.difficulty] || 
+                           verificationResult.certificate.metadata.difficulty}
+                        </span>
+                      </div>
+                    )}
+                    {/* Stress Test specific fields */}
+                    {verificationResult.certificate.metadata.stressScore !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Stress Score</span>
+                        <span className="font-medium text-red-400">{verificationResult.certificate.metadata.stressScore}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.maxCombo !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Max Combo</span>
+                        <span className="font-medium text-amber-400">{verificationResult.certificate.metadata.maxCombo}x</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.survivalTime !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Survival Time</span>
+                        <span className="font-medium">
+                          {Math.floor(verificationResult.certificate.metadata.survivalTime / 60)}:{(verificationResult.certificate.metadata.survivalTime % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.activeChallenges !== undefined && typeof verificationResult.certificate.metadata.activeChallenges === 'number' && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Active Challenges</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.activeChallenges}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.tier && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Performance Tier</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.tier}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.consistency !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Consistency</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.consistency}%</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.speedLevel && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Speech Speed</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.speedLevel}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.sentencesCompleted !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Sentences Completed</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.sentencesCompleted}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.totalReplays !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Replays Used</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.totalReplays}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.totalHints !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Hints Used</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.totalHints}</span>
+                      </div>
+                    )}
+                    {verificationResult.certificate.metadata.totalWords !== undefined && (
+                      <div className="flex justify-between border-b border-border/50 pb-2 md:border-b-0 md:pb-0">
+                        <span className="text-muted-foreground">Total Words</span>
+                        <span className="font-medium">{verificationResult.certificate.metadata.totalWords}</span>
                       </div>
                     )}
                     {/* HIDDEN: Book mode fields temporarily disabled */}

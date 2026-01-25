@@ -30,8 +30,11 @@ export async function startLeaderboardRefreshScheduler(): Promise<void> {
   refreshInterval = setInterval(async () => {
     try {
       await refreshLeaderboardViews();
-    } catch (error) {
-      console.error('[Leaderboard Scheduler] Failed to refresh views:', error);
+    } catch (error: any) {
+      // Suppress quota exceeded errors to avoid log spam
+      if (!error?.message?.includes('compute time quota')) {
+        console.error('[Leaderboard Scheduler] Failed to refresh views:', error);
+      }
     }
   }, REFRESH_INTERVAL_MS);
 
@@ -40,8 +43,11 @@ export async function startLeaderboardRefreshScheduler(): Promise<void> {
   // Run initial refresh
   try {
     await refreshLeaderboardViews();
-  } catch (error) {
-    console.error('[Leaderboard Scheduler] Initial refresh failed:', error);
+  } catch (error: any) {
+    // Suppress quota exceeded errors to avoid log spam
+    if (!error?.message?.includes('compute time quota')) {
+      console.error('[Leaderboard Scheduler] Initial refresh failed:', error);
+    }
   }
 }
 

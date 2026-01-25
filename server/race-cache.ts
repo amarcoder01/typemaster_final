@@ -15,6 +15,8 @@ interface ParticipantProgress {
   errors: number;
   lastUpdate: number;
   dirty: boolean;
+  version: number; // Phase 2: Optimistic locking version
+  flushInProgress: boolean; // Phase 2: Prevent double-flush
 }
 
 interface CacheStats {
@@ -28,7 +30,9 @@ interface CacheStats {
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL for race data
 const MAX_CACHE_SIZE = 10000; // Maximum number of races to cache
-const PROGRESS_FLUSH_INTERVAL_MS = 1000; // Flush progress updates every 1s (reduced from 500ms for performance)
+// SECURITY FIX: Reduced flush interval from 1000ms to 500ms to minimize data loss on crash
+// Trade-off: Slightly higher DB write load, but max 500ms of progress lost on crash
+const PROGRESS_FLUSH_INTERVAL_MS = 500; // Flush progress updates every 500ms
 const LRU_CHECK_INTERVAL_MS = 60 * 1000; // Check for LRU eviction every minute
 
 class RaceCache {
@@ -203,6 +207,9 @@ class RaceCache {
   }
 
   bufferProgress(participantId: number, progress: number, wpm: number, accuracy: number, errors: number): void {
+    const existing = this.progressBuffer.get(participantId);
+    const newVersion = existing ? existing.version + 1 : 1;
+    
     this.progressBuffer.set(participantId, {
       progress,
       wpm,
@@ -210,6 +217,8 @@ class RaceCache {
       errors,
       lastUpdate: Date.now(),
       dirty: true,
+      version: newVersion,
+      flushInProgress: false,
     });
 
     // O(1) lookup using participant→race mapping instead of O(n) scan
@@ -228,17 +237,101 @@ class RaceCache {
     }
   }
 
+  /**
+   * Phase 2: Synchronous flush for a specific participant on disconnect
+   * Ensures progress is saved before connection cleanup
+   */
+  async flushParticipantProgress(participantId: number): Promise<boolean> {
+    const update = this.progressBuffer.get(participantId);
+    if (!update || !update.dirty || update.flushInProgress) {
+      return false;
+    }
+    
+    // Mark flush in progress to prevent concurrent flushes
+    update.flushInProgress = true;
+    const flushVersion = update.version;
+    
+    try {
+      if (this.flushCallback) {
+        const singleUpdate = new Map<number, ParticipantProgress>();
+        singleUpdate.set(participantId, { ...update, dirty: false });
+        await this.flushCallback(singleUpdate);
+        
+        // Only mark as not dirty if version hasn't changed during flush
+        const currentUpdate = this.progressBuffer.get(participantId);
+        if (currentUpdate && currentUpdate.version === flushVersion) {
+          currentUpdate.dirty = false;
+          currentUpdate.flushInProgress = false;
+        }
+        
+        this.stats.flushes++;
+        return true;
+      }
+    } catch (error) {
+      console.error(`[RaceCache] Failed to flush participant ${participantId} progress:`, error);
+      // Reset flushInProgress on error
+      const currentUpdate = this.progressBuffer.get(participantId);
+      if (currentUpdate) {
+        currentUpdate.flushInProgress = false;
+        currentUpdate.dirty = true; // Re-mark as dirty for next flush
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Phase 2: Get cache version for a race (for consistency checks)
+   */
+  getRaceVersion(raceId: number): number | undefined {
+    return this.cache.get(raceId)?.version;
+  }
+
+  /**
+   * Phase 2: Update cache only if version matches (optimistic locking)
+   */
+  updateRaceStatusIfVersionMatches(
+    raceId: number, 
+    status: string, 
+    expectedVersion: number,
+    startedAt?: Date, 
+    finishedAt?: Date
+  ): boolean {
+    const entry = this.cache.get(raceId);
+    if (!entry) return false;
+    
+    if (entry.version !== expectedVersion) {
+      console.log(`[RaceCache] Version mismatch for race ${raceId}: expected ${expectedVersion}, got ${entry.version}`);
+      return false;
+    }
+    
+    entry.race = {
+      ...entry.race,
+      status,
+      startedAt: startedAt || entry.race.startedAt,
+      finishedAt: finishedAt || entry.race.finishedAt,
+    };
+    entry.updatedAt = Date.now();
+    entry.version++;
+    
+    return true;
+  }
+
   private async flushProgressUpdates(): Promise<void> {
     if (this.progressBuffer.size === 0 || !this.flushCallback) {
       return;
     }
 
     const dirtyUpdates = new Map<number, ParticipantProgress>();
+    const versionsAtFlush = new Map<number, number>(); // Track versions for optimistic locking
+    
     const progressEntries = Array.from(this.progressBuffer.entries());
     for (const [id, update] of progressEntries) {
-      if (update.dirty) {
-        dirtyUpdates.set(id, { ...update, dirty: false });
-        update.dirty = false;
+      // Phase 2: Skip if already being flushed
+      if (update.dirty && !update.flushInProgress) {
+        update.flushInProgress = true;
+        versionsAtFlush.set(id, update.version);
+        dirtyUpdates.set(id, { ...update, dirty: false, flushInProgress: false });
       }
     }
 
@@ -247,15 +340,27 @@ class RaceCache {
         await this.flushCallback(dirtyUpdates);
         this.stats.flushes++;
         
+        // Phase 2: Reset flushInProgress and check versions for successful entries
+        for (const [id, _] of dirtyUpdates.entries()) {
+          const current = this.progressBuffer.get(id);
+          if (current) {
+            const versionAtFlush = versionsAtFlush.get(id);
+            // Only mark as clean if version hasn't changed during flush
+            if (versionAtFlush !== undefined && current.version === versionAtFlush) {
+              current.dirty = false;
+            }
+            current.flushInProgress = false;
+          }
+        }
+        
         // Clean up successfully flushed entries from progressBuffer
-        // Only keep entries that have been updated since we started the flush
         const now = Date.now();
         const STALE_THRESHOLD_MS = 30 * 1000; // 30 seconds
         const entriesToDelete: number[] = [];
         
         for (const [id, update] of Array.from(this.progressBuffer.entries())) {
           // Delete if not dirty and older than threshold (participant finished or disconnected)
-          if (!update.dirty && now - update.lastUpdate > STALE_THRESHOLD_MS) {
+          if (!update.dirty && !update.flushInProgress && now - update.lastUpdate > STALE_THRESHOLD_MS) {
             entriesToDelete.push(id);
           }
         }
@@ -267,22 +372,26 @@ class RaceCache {
         // Enforce max size cap on progressBuffer to prevent unbounded growth
         const MAX_PROGRESS_BUFFER_SIZE = 5000;
         if (this.progressBuffer.size > MAX_PROGRESS_BUFFER_SIZE) {
-          // Remove oldest entries first
+          // Remove oldest entries first (only non-flushing entries)
           const sorted = Array.from(this.progressBuffer.entries())
+            .filter(([_, u]) => !u.flushInProgress)
             .sort((a, b) => a[1].lastUpdate - b[1].lastUpdate);
-          const toRemove = sorted.slice(0, this.progressBuffer.size - MAX_PROGRESS_BUFFER_SIZE);
+          const toRemove = sorted.slice(0, Math.max(0, this.progressBuffer.size - MAX_PROGRESS_BUFFER_SIZE));
           for (const [id] of toRemove) {
             this.progressBuffer.delete(id);
           }
-          console.log(`[RaceCache] Progress buffer capped, removed ${toRemove.length} oldest entries`);
+          if (toRemove.length > 0) {
+            console.log(`[RaceCache] Progress buffer capped, removed ${toRemove.length} oldest entries`);
+          }
         }
       } catch (error) {
         console.error("[RaceCache] Failed to flush progress updates:", error);
-        const dirtyEntries = Array.from(dirtyUpdates.entries());
-        for (const [id] of dirtyEntries) {
+        // Phase 2: Reset flushInProgress and re-mark as dirty on failure
+        for (const [id] of dirtyUpdates.entries()) {
           const existing = this.progressBuffer.get(id);
           if (existing) {
             existing.dirty = true;
+            existing.flushInProgress = false;
           }
         }
       }

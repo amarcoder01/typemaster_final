@@ -22,6 +22,7 @@ interface CodeShareCardProps {
   errors: number;
   time: string;
   username?: string;
+  isCustomMode?: boolean;
   onShareTracked?: (platform: string) => void;
 }
 
@@ -37,6 +38,7 @@ export function CodeShareCard({
   errors,
   time,
   username,
+  isCustomMode = false,
   onShareTracked
 }: CodeShareCardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,7 +52,7 @@ export function CodeShareCard({
 
   useEffect(() => {
     generateCard();
-  }, [wpm, rawWpm, accuracy, consistency, language, languageName, difficulty, characters, errors, time, username]);
+  }, [wpm, rawWpm, accuracy, consistency, language, languageName, difficulty, characters, errors, time, username, isCustomMode]);
 
   const generateCard = () => {
     const canvas = canvasRef.current;
@@ -125,11 +127,11 @@ export function CodeShareCard({
       ctx.fillText(stat.label, stat.x, statsY + 25);
     });
 
-    // Language, Difficulty & Time - Simple centered text (like standard card footer area)
+    // Language, Difficulty/Custom & Time - Simple centered text (like standard card footer area)
     const metaY = 325;
 
-    // Format text parts
-    const difficultyCapitalized = difficulty.charAt(0).toUpperCase() + difficulty.slice(1);
+    // Format text parts - show "Custom Code" for custom mode, otherwise show difficulty
+    const modeText = isCustomMode ? "Custom Code" : difficulty.charAt(0).toUpperCase() + difficulty.slice(1);
 
     // Draw as centered single line
     ctx.textAlign = "center";
@@ -139,7 +141,7 @@ export function CodeShareCard({
 
     ctx.font = "13px 'DM Sans', sans-serif";
     ctx.fillStyle = "#94a3b8";
-    ctx.fillText(`${difficultyCapitalized}  •  ${time}`, canvas.width / 2, metaY + 22);
+    ctx.fillText(`${modeText}  •  ${time}`, canvas.width / 2, metaY + 22);
 
     // User Footer (like standard card)
     if (username) {

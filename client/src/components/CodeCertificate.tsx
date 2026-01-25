@@ -27,6 +27,7 @@ interface CodeCertificateProps {
   date?: Date;
   verificationId?: string; // Server-generated verification ID
   minimal?: boolean; // Only show download button, hide full share area
+  isCustomMode?: boolean; // If true, show "Custom Code" instead of difficulty
 }
 
 interface TierVisuals {
@@ -90,6 +91,7 @@ export function CodeCertificate({
   date = new Date(),
   verificationId: serverVerificationId,
   minimal = false,
+  isCustomMode = false,
 }: CodeCertificateProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isSharing, setIsSharing] = useState(false);
@@ -150,7 +152,7 @@ export function CodeCertificate({
 
   useEffect(() => {
     generateCertificate();
-  }, [wpm, rawWpm, accuracy, consistency, language, languageName, difficulty, characters, errors, time, username, qrCodeImage, serverVerificationId]);
+  }, [wpm, rawWpm, accuracy, consistency, language, languageName, difficulty, characters, errors, time, username, qrCodeImage, serverVerificationId, isCustomMode]);
 
   const generateCertificate = () => {
     const canvas = canvasRef.current;
@@ -290,10 +292,11 @@ export function CodeCertificate({
     ctx.font = "italic 18px 'DM Sans', system-ui, sans-serif";
     ctx.fillText("has successfully completed a Code Mode test", canvas.width / 2, 235);
 
-    // Language info
+    // Language info - show "Custom Code" for custom mode, otherwise show difficulty
+    const modeText = isCustomMode ? "Custom Code" : `${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} Difficulty`;
     ctx.fillStyle = tierVisuals.primaryColor;
     ctx.font = "600 16px 'DM Sans', system-ui, sans-serif";
-    ctx.fillText(`${langIcon} ${languageName} Programming  •  ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} Difficulty`, canvas.width / 2, 265);
+    ctx.fillText(`${langIcon} ${languageName} Programming  •  ${modeText}`, canvas.width / 2, 265);
 
     // "with the following results:"
     ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
@@ -656,10 +659,7 @@ export function CodeCertificate({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                className="w-full gap-1.5 sm:gap-2 min-h-[44px] h-10 sm:h-11 text-xs sm:text-sm text-white font-semibold active:scale-[0.98] transition-all touch-manipulation"
-                style={{
-                  background: `linear-gradient(135deg, ${tierVisuals.borderGradient[0]}, ${tierVisuals.primaryColor}, ${tierVisuals.borderGradient[2]})`,
-                }}
+                className="w-full gap-1.5 sm:gap-2 min-h-[44px] h-10 sm:h-11 text-xs sm:text-sm text-white font-semibold active:scale-[0.98] transition-all touch-manipulation bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/20"
                 data-testid="button-download-certificate"
               >
                 <Download className="w-3.5 sm:w-4 h-3.5 sm:h-4 shrink-0" />
@@ -667,7 +667,7 @@ export function CodeCertificate({
                 <ChevronDown className="w-3 sm:w-4 h-3 sm:h-4 ml-auto shrink-0" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" className="w-44 sm:w-48 z-[110]">
+            <DropdownMenuContent align="center" className="w-44 sm:w-48 z-[200]">
               <DropdownMenuItem onClick={() => downloadCertificate("png")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
                 <FileImage className="w-4 h-4 mr-2 shrink-0" />
                 Download as PNG
@@ -716,7 +716,7 @@ export function CodeCertificate({
                     <ChevronDown className="w-2.5 sm:w-3 h-2.5 sm:h-3 ml-auto shrink-0" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" className="w-44 sm:w-48 z-[110]">
+                <DropdownMenuContent align="center" className="w-44 sm:w-48 z-[200]">
                   <DropdownMenuItem onClick={() => downloadCertificate("png")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
                     <FileImage className="w-4 h-4 mr-2 shrink-0" />
                     Download as PNG

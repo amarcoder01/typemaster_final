@@ -7,6 +7,8 @@ import { registerRoutes } from "./routes";
 import { requestIdMiddleware, errorHandler, notFoundHandler } from "./error-middleware";
 import { metricsCollector } from "./metrics";
 import { registerShutdownHandlers } from "./graceful-shutdown";
+import { initializeRedis, REDIS_ENABLED } from "./redis-client";
+import { initializeJobQueues } from "./job-queue";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -105,6 +107,26 @@ export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
   metricsCollector.initialize();
+
+  // Initialize Redis for distributed state (if enabled)
+  if (REDIS_ENABLED) {
+    const redisInitialized = await initializeRedis();
+    if (redisInitialized) {
+      log("Redis initialized for distributed state", "redis");
+      
+      // Initialize job queues (requires Redis)
+      const jobQueuesInitialized = await initializeJobQueues();
+      if (jobQueuesInitialized) {
+        log("Job queues initialized for async processing", "jobs");
+      } else {
+        log("Job queues initialization failed", "jobs");
+      }
+    } else {
+      log("Redis initialization failed, falling back to in-memory state", "redis");
+    }
+  } else {
+    log("Redis disabled, using in-memory state", "redis");
+  }
 
   const server = await registerRoutes(app);
 

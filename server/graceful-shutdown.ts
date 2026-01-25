@@ -3,6 +3,8 @@ import { raceWebSocket } from "./websocket";
 import { metricsCollector } from "./metrics";
 import { raceCleanupScheduler } from "./race-cleanup";
 import { raceCache } from "./race-cache";
+import { shutdownRedis, REDIS_ENABLED } from "./redis-client";
+import { shutdownJobQueues, isJobQueueAvailable } from "./job-queue";
 
 const SHUTDOWN_TIMEOUT_MS = 30000;
 
@@ -80,6 +82,16 @@ async function handleShutdown(signal: string): Promise<void> {
     
     console.log("[Shutdown] Stopping metrics collector...");
     metricsCollector.shutdown();
+    
+    if (isJobQueueAvailable()) {
+      console.log("[Shutdown] Closing job queues...");
+      await shutdownJobQueues();
+    }
+    
+    if (REDIS_ENABLED) {
+      console.log("[Shutdown] Closing Redis connections...");
+      await shutdownRedis();
+    }
     
     console.log("[Shutdown] Graceful shutdown complete");
     clearTimeout(shutdownTimeout);

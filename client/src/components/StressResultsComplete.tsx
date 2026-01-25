@@ -19,6 +19,15 @@ import { getStressPerformanceRating, buildStressShareText } from '@/lib/share-ut
 import { useToast } from '@/hooks/use-toast';
 import { jsPDF } from 'jspdf';
 
+// URL-friendly slugs for each difficulty mode
+const DIFFICULTY_SLUGS: Record<string, string> = {
+  beginner: 'warm-up',
+  intermediate: 'mind-scrambler',
+  expert: 'absolute-mayhem',
+  nightmare: 'nightmare-realm',
+  impossible: 'impossible',
+};
+
 type Props = {
   username?: string | null;
   wpm: number;
@@ -38,10 +47,12 @@ type Props = {
   isOnline: boolean;
   pendingResultData?: any | null;
   saveResultMutation: { isError: boolean; isSuccess: boolean; isPending: boolean };
+  saveErrorMessage?: string | null;
   onRetry: () => void;
   onChangeDifficulty: () => void;
   onCopyLink?: (link: string) => void;
   onRetrySave: () => void;
+  verificationId?: string | null;
 };
 
 function getTier(score: number) {
@@ -72,10 +83,12 @@ export default function StressResultsComplete(props: Props) {
     isOnline,
     pendingResultData,
     saveResultMutation,
+    saveErrorMessage,
     onRetry,
     onChangeDifficulty,
     onCopyLink,
     onRetrySave,
+    verificationId,
   } = props;
 
   const { toast } = useToast();
@@ -84,9 +97,11 @@ export default function StressResultsComplete(props: Props) {
   const [showCertificate, setShowCertificate] = useState(false);
   const [certificateImageCopied, setCertificateImageCopied] = useState(false);
   const [isSharingCertificate, setIsSharingCertificate] = useState(false);
+  const [certificateIdCopied, setCertificateIdCopied] = useState(false);
   const [shareDialogTab, setShareDialogTab] = useState<'quick' | 'visual' | 'certificate' | 'challenge'>('quick');
   const shareLink = `${window.location.origin}/stress-test`;
-  const challengeLink = `${window.location.origin}/stress-test?challenge=${stressScore}&difficulty=${difficulty}`;
+  const modeSlug = DIFFICULTY_SLUGS[difficulty] || difficulty;
+  const challengeLink = `${window.location.origin}/stress-test?mode=${modeSlug}&score=${stressScore}`;
   const rating = getStressPerformanceRating(stressScore);
   const shareText = buildStressShareText(stressScore, wpm, accuracy, completionRate, survivalTime, difficultyName, rating);
 
@@ -104,7 +119,51 @@ export default function StressResultsComplete(props: Props) {
     duration,
     username: username || 'Stress Survivor',
     date: new Date(),
-  }), [wpm, accuracy, consistency, difficultyName, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username]);
+    verificationId: verificationId || undefined,
+  }), [wpm, accuracy, consistency, difficultyName, stressScore, maxCombo, completionRate, survivalTime, activeChallenges, duration, username, verificationId]);
+
+  // Use server-generated verification ID or generate fallback (same logic as StressCertificate component)
+  const certificateId = useMemo(() => {
+    if (verificationId) return verificationId;
+    // Fallback: Generate client-side hash with proper 3-group format
+    const data = `${Math.round(wpm)}-${accuracy}-${stressScore}-${difficultyName}-${survivalTime}-${duration}`;
+    let hash1 = 0;
+    let hash2 = 0;
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i);
+      hash1 = ((hash1 << 5) - hash1) + char;
+      hash1 = hash1 & hash1;
+      hash2 = ((hash2 << 3) + hash2) ^ char;
+      hash2 = hash2 & hash2;
+    }
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const absHash1 = Math.abs(hash1);
+    const absHash2 = Math.abs(hash2);
+    let id = "TM-";
+    for (let i = 0; i < 4; i++) {
+      id += chars[(absHash1 >> (i * 4)) % chars.length];
+    }
+    id += "-";
+    for (let i = 0; i < 4; i++) {
+      id += chars[(absHash1 >> ((i + 4) * 4)) % chars.length];
+    }
+    id += "-";
+    for (let i = 0; i < 4; i++) {
+      id += chars[(absHash2 >> (i * 4)) % chars.length];
+    }
+    return id;
+  }, [verificationId, wpm, accuracy, stressScore, difficultyName, survivalTime, duration]);
+
+  const handleCopyCertificateId = async () => {
+    try {
+      await navigator.clipboard.writeText(certificateId);
+      setCertificateIdCopied(true);
+      setTimeout(() => setCertificateIdCopied(false), 2000);
+      toast({ title: "Certificate ID Copied!", description: "Certificate ID has been copied to clipboard." });
+    } catch {
+      toast({ title: "Copy Failed", description: "Please try again.", variant: "destructive" });
+    }
+  };
 
   const handleCopyImage = async () => {
     const certCanvas = document.querySelector('[data-testid="stress-certificate-canvas"]') as HTMLCanvasElement;
@@ -252,7 +311,7 @@ export default function StressResultsComplete(props: Props) {
 
         {/* Stats Grid */}
         <Card className="mb-6 overflow-hidden">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 divide-x divide-y sm:divide-y-0 divide-border">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-border">
             {/* WPM */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -279,21 +338,6 @@ export default function StressResultsComplete(props: Props) {
               <TooltipContent side="bottom" className="max-w-[200px]">
                 <p className="font-semibold">Typing Accuracy</p>
                 <p className="text-xs text-muted-foreground">Percentage of correct keystrokes. {accuracy >= 90 ? '🎯 Excellent!' : accuracy >= 70 ? '📊 Good, room to improve' : '⚠️ Focus on accuracy'}</p>
-              </TooltipContent>
-            </Tooltip>
-            {/* Completion */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="p-4 text-center bg-gradient-to-b from-orange-500/5 to-transparent cursor-help hover:bg-orange-500/10 transition-colors">
-                  <div className={`text-2xl sm:text-3xl font-bold tabular-nums ${completionRate >= 100 ? 'text-green-400' : 'text-orange-400'}`}>
-                    {completionRate.toFixed(0)}%
-              </div>
-                  <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide mt-1">Done</div>
-            </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-[200px]">
-                <p className="font-semibold">Completion Rate</p>
-                <p className="text-xs text-muted-foreground">How much of the text you completed. {completionRate >= 100 ? '✅ Full completion!' : `${(100 - completionRate).toFixed(0)}% remaining when time ran out.`}</p>
               </TooltipContent>
             </Tooltip>
             {/* Survival Time */}
@@ -378,11 +422,18 @@ export default function StressResultsComplete(props: Props) {
                   )}
                 </div>
               ) : saveResultMutation.isError ? (
-                <div className="flex items-center justify-center gap-2 text-red-500">
-                  <span className="text-sm">Failed to save</span>
-                  <Button variant="ghost" size="sm" onClick={onRetrySave} className="h-6 px-2 text-red-500">
-                    Retry
-                  </Button>
+                <div className="flex flex-col items-center gap-2 text-red-500">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Failed to save</span>
+                    <Button variant="ghost" size="sm" onClick={onRetrySave} className="h-6 px-2 text-red-500">
+                      Retry
+                    </Button>
+                  </div>
+                  {saveErrorMessage && (
+                    <p className="text-xs text-red-400/80 max-w-md text-center px-2">
+                      {saveErrorMessage}
+                    </p>
+                  )}
                 </div>
               ) : saveResultMutation.isSuccess ? (
                 <p className="text-sm text-green-600 dark:text-green-400">✓ Result saved!</p>
@@ -693,6 +744,43 @@ export default function StressResultsComplete(props: Props) {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  {/* Certificate ID Copy Section */}
+                  <div className="p-3 bg-muted/50 rounded-lg border">
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Certificate ID</label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={certificateId}
+                        readOnly
+                        className="flex-1 font-mono text-sm bg-background"
+                        data-testid="input-certificate-id"
+                      />
+                      <Button
+                        onClick={handleCopyCertificateId}
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        data-testid="button-copy-certificate-id"
+                      >
+                        {certificateIdCopied ? (
+                          <>
+                            <Check className="w-4 h-4 mr-1" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 mr-1" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    {verificationId && (
+                      <p className="text-xs text-muted-foreground mt-2 text-center">
+                        ✓ Official verification ID
+                      </p>
+                    )}
+                  </div>
 
                   {/* Share Certificate with Image Button */}
                   {'share' in navigator && (

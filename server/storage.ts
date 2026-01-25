@@ -203,12 +203,17 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// ==================== Connection Pool Configuration ====================
+// Optimized for high-traffic scaling with separate read/write pools
+
+// Primary pool for write operations
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Optimized for Neon serverless - handles cold starts and connection limits
-  max: 5, // Reduced to prevent overwhelming Neon's connection limit
-  idleTimeoutMillis: 60000, // Keep connections alive longer (60s)
-  connectionTimeoutMillis: 30000, // 30s timeout for Neon cold starts
+  // Increased pool size for high traffic (was 5, now 20)
+  max: parseInt(process.env.DB_POOL_MAX || '20', 10),
+  min: parseInt(process.env.DB_POOL_MIN || '5', 10),
+  idleTimeoutMillis: 30000, // 30s idle timeout
+  connectionTimeoutMillis: 10000, // 10s connection timeout
   allowExitOnIdle: false, // Keep pool alive
 });
 
@@ -219,7 +224,61 @@ pool.on('error', (err: any) => {
   // Don't crash - the pool will create new connections on next query
 });
 
+// Pool monitoring for observability
+pool.on('connect', () => {
+  console.log('[Database Pool] New connection established');
+});
+
+pool.on('remove', () => {
+  console.log('[Database Pool] Connection removed');
+});
+
 export const db = drizzle({ client: pool });
+
+// ==================== Read Replica Pool Configuration ====================
+// Separate pool for read-heavy operations (leaderboards, stats, etc.)
+
+const READ_REPLICA_URL = process.env.DATABASE_READ_URL || process.env.DATABASE_URL;
+
+const readPool = new Pool({
+  connectionString: READ_REPLICA_URL,
+  // Higher pool size for read-heavy operations
+  max: parseInt(process.env.DB_READ_POOL_MAX || '30', 10),
+  min: parseInt(process.env.DB_READ_POOL_MIN || '5', 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+  allowExitOnIdle: false,
+});
+
+readPool.on('error', (err: any) => {
+  console.error('[Database Read Pool] Unexpected connection error (will auto-reconnect):', err.message);
+});
+
+export const readDb = drizzle({ client: readPool });
+
+// ==================== Pool Stats for Monitoring ====================
+
+export function getPoolStats() {
+  return {
+    primary: {
+      totalCount: pool.totalCount,
+      idleCount: pool.idleCount,
+      waitingCount: pool.waitingCount,
+    },
+    read: {
+      totalCount: readPool.totalCount,
+      idleCount: readPool.idleCount,
+      waitingCount: readPool.waitingCount,
+    },
+  };
+}
+
+// Log pool configuration on startup
+console.log('[Database] Pool configuration:', {
+  primary: { max: pool.options.max, min: pool.options.min },
+  read: { max: readPool.options.max, min: readPool.options.min },
+  hasReadReplica: READ_REPLICA_URL !== process.env.DATABASE_URL,
+});
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -482,6 +541,7 @@ export interface IStorage {
   getRaceByCode(roomCode: string): Promise<Race | undefined>;
   updateRaceStatus(id: number, status: string, startedAt?: Date, finishedAt?: Date): Promise<void>;
   updateRaceTimeLimitSeconds(id: number, timeLimitSeconds: number): Promise<void>;
+  updateRaceCreator(id: number, creatorParticipantId: number): Promise<void>;
   extendRaceParagraph(id: number, additionalContent: string): Promise<Race | undefined>;
   getActiveRaces(): Promise<Race[]>;
 
@@ -499,6 +559,11 @@ export interface IStorage {
   getStaleRaces(waitingTimeout: number, countdownTimeout: number, racingTimeout: number): Promise<Race[]>;
   cleanupOldFinishedRaces(retentionMs: number): Promise<number>;
   bulkUpdateParticipantProgress(updates: Map<number, { progress: number; wpm: number; accuracy: number; errors: number }>): Promise<void>;
+  
+  // Atomic race operations
+  completeRaceAtomic(raceId: number): Promise<{ completed: boolean; race?: Race }>;
+  assignTimedRacePositionsAtomic(raceId: number, rankings: Array<{ participantId: number; position: number }>): Promise<boolean>;
+  updateRaceStatusAtomic(id: number, newStatus: string, expectedCurrentStatus?: string, startedAt?: Date, finishedAt?: Date): Promise<Race | null>;
 
   createCodeSnippet(snippet: InsertCodeSnippet): Promise<CodeSnippet>;
   getCodeSnippet(id: number): Promise<CodeSnippet | undefined>;
@@ -1557,6 +1622,27 @@ export class DatabaseStorage implements IStorage {
     return leaderboard.rows as any[];
   }
 
+  // SECURITY FIX: Validate language parameter to prevent SQL injection
+  private validateLanguage(language: string): string {
+    // Whitelist of valid language codes
+    const validLanguages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar', 'hi', 'nl', 'pl', 'sv', 'tr', 'vi', 'th', 'id', 'ms'];
+    if (!validLanguages.includes(language)) {
+      console.warn(`[Storage] Invalid language code: ${language}, defaulting to 'en'`);
+      return 'en';
+    }
+    return language;
+  }
+
+  // SECURITY FIX: Sanitize UUID to prevent SQL injection
+  private sanitizeUUID(uuid: string): string {
+    // UUID format: 8-4-4-4-12 hexadecimal characters
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(uuid)) {
+      throw new Error('Invalid UUID format');
+    }
+    return uuid;
+  }
+
   async getLeaderboardPaginated(limit: number, offset: number, timeframe?: string, language: string = "en"): Promise<Array<{
     userId: string;
     username: string;
@@ -1571,6 +1657,13 @@ export class DatabaseStorage implements IStorage {
   }>> {
     // Use materialized views for much faster queries
     const viewName = this.getMaterializedViewName(timeframe);
+    
+    // SECURITY FIX: Validate language to prevent SQL injection
+    const safeLanguage = this.validateLanguage(language);
+    
+    // SECURITY FIX: Validate numeric parameters
+    const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 10)));
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
 
     const leaderboard = await db.execute(sql.raw(`
         SELECT 
@@ -1585,10 +1678,10 @@ export class DatabaseStorage implements IStorage {
         rank,
         is_verified as "isVerified"
       FROM ${viewName}
-      WHERE language = '${language}'
+      WHERE language = '${safeLanguage}'
       ORDER BY rank ASC
-      LIMIT ${limit}
-      OFFSET ${offset}
+      LIMIT ${safeLimit}
+      OFFSET ${safeOffset}
     `));
 
     return leaderboard.rows as any[];
@@ -1613,11 +1706,14 @@ export class DatabaseStorage implements IStorage {
   async getLeaderboardCount(timeframe?: string, language: string = "en"): Promise<number> {
     // Use materialized views for much faster count queries
     const viewName = this.getMaterializedViewName(timeframe);
+    
+    // SECURITY FIX: Validate language to prevent SQL injection
+    const safeLanguage = this.validateLanguage(language);
 
     const result = await db.execute(sql.raw(`
       SELECT COUNT(*)::int as count
       FROM ${viewName}
-      WHERE language = '${language}'
+      WHERE language = '${safeLanguage}'
     `));
 
     return (result.rows[0] as any)?.count || 0;
@@ -1626,11 +1722,16 @@ export class DatabaseStorage implements IStorage {
   async getLeaderboardAroundUser(userId: string, range: number = 5, timeframe?: string, language: string = "en"): Promise<{ userRank: number; entries: any[] }> {
     // Use materialized views for much faster lookups
     const viewName = this.getMaterializedViewName(timeframe);
+    
+    // SECURITY FIX: Validate inputs to prevent SQL injection
+    const safeLanguage = this.validateLanguage(language);
+    const safeUserId = this.sanitizeUUID(userId);
+    const safeRange = Math.max(1, Math.min(50, Math.floor(Number(range) || 5)));
 
     const rankResult = await db.execute(sql.raw(`
       SELECT rank
       FROM ${viewName}
-      WHERE user_id = '${userId}' AND language = '${language}'
+      WHERE user_id = '${safeUserId}' AND language = '${safeLanguage}'
     `));
 
     const userRank = (rankResult.rows[0] as any)?.rank || -1;
@@ -1639,8 +1740,8 @@ export class DatabaseStorage implements IStorage {
       return { userRank: -1, entries: [] };
     }
 
-    const startRank = Math.max(1, userRank - range);
-    const endRank = userRank + range;
+    const startRank = Math.max(1, userRank - safeRange);
+    const endRank = userRank + safeRange;
 
     const entries = await db.execute(sql.raw(`
         SELECT 
@@ -1654,7 +1755,7 @@ export class DatabaseStorage implements IStorage {
         total_tests as "totalTests",
         rank
       FROM ${viewName}
-      WHERE language = '${language}'
+      WHERE language = '${safeLanguage}'
         AND rank >= ${startRank} 
         AND rank <= ${endRank}
       ORDER BY rank ASC
@@ -3335,8 +3436,168 @@ export class DatabaseStorage implements IStorage {
     await db.update(races).set(updateData).where(eq(races.id, id));
   }
 
+  /**
+   * Phase 1.3: Atomic race status update with transaction and optimistic locking
+   * Returns the updated race or null if update failed (e.g., concurrent modification)
+   */
+  async updateRaceStatusAtomic(
+    id: number, 
+    newStatus: string, 
+    expectedCurrentStatus?: string,
+    startedAt?: Date, 
+    finishedAt?: Date
+  ): Promise<Race | null> {
+    try {
+      return await db.transaction(async (tx) => {
+        // Lock the race row for update
+        const currentRace = await tx
+          .select()
+          .from(races)
+          .where(eq(races.id, id))
+          .for("update");
+        
+        if (!currentRace || currentRace.length === 0) {
+          return null;
+        }
+        
+        // Validate expected status if provided (optimistic locking)
+        if (expectedCurrentStatus && currentRace[0].status !== expectedCurrentStatus) {
+          console.log(`[Storage Atomic] Race ${id} status mismatch: expected ${expectedCurrentStatus}, got ${currentRace[0].status}`);
+          return null;
+        }
+        
+        // Validate status transitions
+        const validTransitions: Record<string, string[]> = {
+          "waiting": ["countdown", "finished"],
+          "countdown": ["waiting", "racing", "finished"],
+          "racing": ["finished"],
+          "finished": [], // Terminal state
+        };
+        
+        const currentStatus = currentRace[0].status;
+        if (!validTransitions[currentStatus]?.includes(newStatus)) {
+          console.warn(`[Storage Atomic] Invalid transition for race ${id}: ${currentStatus} -> ${newStatus}`);
+          return null;
+        }
+        
+        const updateData: any = { status: newStatus };
+        if (startedAt) updateData.startedAt = startedAt;
+        if (finishedAt) updateData.finishedAt = finishedAt;
+        
+        const updated = await tx
+          .update(races)
+          .set(updateData)
+          .where(eq(races.id, id))
+          .returning();
+        
+        return updated[0] || null;
+      });
+    } catch (error) {
+      console.error(`[Storage Atomic] Failed to update race ${id} status:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Phase 5.1: Atomically complete a race - checks if all participants finished
+   * Returns true if race was completed, false if not all finished or already completed
+   */
+  async completeRaceAtomic(raceId: number): Promise<{ completed: boolean; race?: Race }> {
+    try {
+      return await db.transaction(async (tx) => {
+        // Lock the race row
+        const raceRows = await tx
+          .select()
+          .from(races)
+          .where(eq(races.id, raceId))
+          .for("update");
+        
+        if (!raceRows || raceRows.length === 0) {
+          return { completed: false };
+        }
+        
+        const race = raceRows[0];
+        
+        // Already finished - idempotent return
+        if (race.status === "finished") {
+          return { completed: false, race };
+        }
+        
+        // Check if all participants are finished
+        const participants = await tx
+          .select()
+          .from(raceParticipants)
+          .where(
+            and(
+              eq(raceParticipants.raceId, raceId),
+              eq(raceParticipants.isActive, 1)
+            )
+          );
+        
+        const allFinished = participants.every(p => p.isFinished === 1);
+        
+        if (!allFinished) {
+          return { completed: false, race };
+        }
+        
+        // Update race to finished
+        const finishedAt = new Date();
+        const updated = await tx
+          .update(races)
+          .set({ status: "finished", finishedAt })
+          .where(eq(races.id, raceId))
+          .returning();
+        
+        console.log(`[Storage Atomic] Race ${raceId} completed atomically`);
+        return { completed: true, race: updated[0] };
+      });
+    } catch (error) {
+      console.error(`[Storage Atomic] Failed to complete race ${raceId}:`, error);
+      return { completed: false };
+    }
+  }
+
+  /**
+   * SECURITY FIX: Atomically assign positions for timed races based on WPM ranking
+   * Prevents race conditions when multiple participants finish concurrently
+   * @param raceId - The race ID
+   * @param rankings - Array of { participantId, position } to assign atomically
+   */
+  async assignTimedRacePositionsAtomic(raceId: number, rankings: Array<{ participantId: number; position: number }>): Promise<boolean> {
+    if (rankings.length === 0) return true;
+    
+    try {
+      return await db.transaction(async (tx) => {
+        // Lock the race row first to prevent concurrent position updates
+        await tx
+          .select()
+          .from(races)
+          .where(eq(races.id, raceId))
+          .for("update");
+        
+        // Update all positions within the same transaction
+        for (const { participantId, position } of rankings) {
+          await tx
+            .update(raceParticipants)
+            .set({ finishPosition: position })
+            .where(eq(raceParticipants.id, participantId));
+        }
+        
+        console.log(`[Storage Atomic] Assigned ${rankings.length} positions for race ${raceId}`);
+        return true;
+      });
+    } catch (error) {
+      console.error(`[Storage Atomic] Failed to assign positions for race ${raceId}:`, error);
+      return false;
+    }
+  }
+
   async updateRaceTimeLimitSeconds(id: number, timeLimitSeconds: number): Promise<void> {
     await db.update(races).set({ timeLimitSeconds }).where(eq(races.id, id));
+  }
+
+  async updateRaceCreator(id: number, creatorParticipantId: number): Promise<void> {
+    await db.update(races).set({ creatorParticipantId }).where(eq(races.id, id));
   }
 
   async extendRaceParagraph(id: number, additionalContent: string): Promise<Race | undefined> {
@@ -3358,8 +3619,80 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createRaceParticipant(participant: InsertRaceParticipant): Promise<RaceParticipant> {
-    const result = await db.insert(raceParticipants).values(participant).returning();
-    return result[0];
+    // Generate cryptographic join token for WebSocket authentication (Phase 1 hardening)
+    // Token is HMAC-signed to prevent forgery
+    
+    // SECURITY FIX: Require SESSION_SECRET and validate minimum length
+    const sessionSecret = process.env.SESSION_SECRET;
+    if (!sessionSecret) {
+      throw new Error('SECURITY: SESSION_SECRET environment variable is required for race token generation');
+    }
+    if (sessionSecret.length < 32) {
+      throw new Error('SECURITY: SESSION_SECRET must be at least 32 characters long');
+    }
+    
+    // TRANSACTION ISOLATION FIX: Use a transaction with row-level locking to prevent
+    // race conditions where two join requests arrive simultaneously
+    return await db.transaction(async (tx) => {
+      // Lock the race row to serialize participant creation
+      const raceRow = await tx
+        .select()
+        .from(races)
+        .where(eq(races.id, participant.raceId))
+        .for("update")
+        .limit(1);
+      
+      if (!raceRow || raceRow.length === 0) {
+        throw new Error('Race not found');
+      }
+      
+      // Check for existing active participant within the transaction
+      const existingConditions = [
+        eq(raceParticipants.raceId, participant.raceId),
+        eq(raceParticipants.isActive, 1)
+      ];
+      
+      if (participant.userId) {
+        existingConditions.push(eq(raceParticipants.userId, participant.userId));
+      } else if (participant.guestName) {
+        existingConditions.push(eq(raceParticipants.guestName, participant.guestName));
+      }
+      
+      const existing = await tx
+        .select()
+        .from(raceParticipants)
+        .where(and(...existingConditions))
+        .limit(1);
+      
+      if (existing.length > 0) {
+        console.log(`[Storage] Participant already exists in race ${participant.raceId}, returning existing`);
+        return existing[0];
+      }
+      
+      // Check max players within the same transaction
+      const currentParticipants = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(raceParticipants)
+        .where(and(
+          eq(raceParticipants.raceId, participant.raceId),
+          eq(raceParticipants.isActive, 1)
+        ));
+      
+      const currentCount = Number(currentParticipants[0]?.count || 0);
+      if (currentCount >= raceRow[0].maxPlayers) {
+        throw new Error('RACE_FULL');
+      }
+      
+      const tokenPayload = `${participant.raceId}:${Date.now()}:${crypto.randomBytes(16).toString('hex')}`;
+      const joinToken = crypto.createHmac('sha256', sessionSecret)
+        .update(tokenPayload)
+        .digest('hex');
+      
+      const result = await tx.insert(raceParticipants)
+        .values({ ...participant, joinToken })
+        .returning();
+      return result[0];
+    });
   }
 
   async getRaceParticipants(raceId: number): Promise<RaceParticipant[]> {
@@ -3402,6 +3735,20 @@ export class DatabaseStorage implements IStorage {
 
       if (participant[0].isFinished === 1 && participant[0].finishPosition !== null) {
         return { position: participant[0].finishPosition, isNewFinish: false };
+      }
+
+      // If a finishPosition was pre-assigned (e.g., DNF or timed-race rankings),
+      // finalize without consuming a finish_counter slot.
+      if (participant[0].isFinished === 0 && participant[0].finishPosition !== null) {
+        const position = participant[0].finishPosition;
+        await tx
+          .update(raceParticipants)
+          .set({
+            isFinished: 1,
+            finishedAt: new Date(),
+          })
+          .where(eq(raceParticipants.id, id));
+        return { position, isNewFinish: true };
       }
 
       const result = await tx.execute(sql`
@@ -3547,37 +3894,50 @@ export class DatabaseStorage implements IStorage {
       return;
     }
 
-    // Use a single bulk UPDATE with CASE statements for true bulk operation
-    // This reduces N database roundtrips to just 1
-    try {
-      const ids = entries.map(([id]) => id);
-      const progressCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.progress}`).join(' ');
-      const wpmCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.wpm}`).join(' ');
-      const accuracyCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${Math.round(data.accuracy * 100) / 100}`).join(' ');
-      const errorsCases = entries.map(([id, data]) => `WHEN id = ${id} THEN ${data.errors}`).join(' ');
+    // SECURITY FIX: Use parameterized batch updates instead of sql.raw() to prevent SQL injection
+    // Process updates in parallel batches for performance while maintaining safety
+    const BATCH_SIZE = 50;
+    const batches: Array<Array<[number, { progress: number; wpm: number; accuracy: number; errors: number }]>> = [];
+    
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      batches.push(entries.slice(i, i + BATCH_SIZE));
+    }
 
-      await db.execute(sql`
-        UPDATE race_participants 
-        SET 
-          progress = CASE ${sql.raw(progressCases)} END,
-          wpm = CASE ${sql.raw(wpmCases)} END,
-          accuracy = CASE ${sql.raw(accuracyCases)} END,
-          errors = CASE ${sql.raw(errorsCases)} END
-        WHERE id = ANY(${ids})
-      `);
+    try {
+      for (const batch of batches) {
+        // Use Promise.all for parallel updates within each batch
+        // Each update uses parameterized queries (safe from SQL injection)
+        await Promise.all(
+          batch.map(([id, data]) =>
+            db
+              .update(raceParticipants)
+              .set({
+                progress: data.progress,
+                wpm: data.wpm,
+                accuracy: Math.round(data.accuracy * 100) / 100,
+                errors: data.errors,
+              })
+              .where(eq(raceParticipants.id, id))
+          )
+        );
+      }
     } catch (error) {
-      // Fallback to individual updates if bulk fails
-      console.warn("[Storage] Bulk update failed, falling back to individual updates:", error);
+      // Fallback to sequential updates if parallel fails
+      console.warn("[Storage] Parallel batch update failed, falling back to sequential updates:", error);
       for (const [id, data] of entries) {
-        await db
-          .update(raceParticipants)
-          .set({
-            progress: data.progress,
-            wpm: data.wpm,
-            accuracy: data.accuracy,
-            errors: data.errors,
-          })
-          .where(eq(raceParticipants.id, id));
+        try {
+          await db
+            .update(raceParticipants)
+            .set({
+              progress: data.progress,
+              wpm: data.wpm,
+              accuracy: Math.round(data.accuracy * 100) / 100,
+              errors: data.errors,
+            })
+            .where(eq(raceParticipants.id, id));
+        } catch (innerError) {
+          console.error(`[Storage] Failed to update participant ${id}:`, innerError);
+        }
       }
     }
   }
@@ -4051,43 +4411,97 @@ export class DatabaseStorage implements IStorage {
 
   async upsertStressTestBestScore(test: InsertStressTest): Promise<{ result: StressTest; isNewPersonalBest: boolean }> {
     // Production-ready atomic upsert using PostgreSQL's INSERT ON CONFLICT
-    // Uses WHERE clause to compare EXCLUDED vs existing row at conflict time (not pre-insert)
-    // This ensures race-safe atomic updates - only updates when new score beats existing
-
+    // Always increments attempt_count, but only updates stats when new score beats existing
+    
+    // First, try to insert or update with incremented attempt count
     const result = await db.execute(sql`
       INSERT INTO stress_tests (
         user_id, difficulty, enabled_effects, wpm, accuracy, errors,
         max_combo, total_characters, duration, survival_time,
-        completion_rate, stress_score, created_at
+        completion_rate, stress_score, attempt_count, created_at
       )
       VALUES (
         ${test.userId}, ${test.difficulty}, ${JSON.stringify(test.enabledEffects)}::jsonb,
         ${test.wpm}, ${test.accuracy}, ${test.errors}, ${test.maxCombo},
         ${test.totalCharacters}, ${test.duration}, ${test.survivalTime},
-        ${test.completionRate}, ${test.stressScore}, NOW()
+        ${test.completionRate}, ${test.stressScore}, 1, NOW()
       )
       ON CONFLICT (user_id, difficulty) 
       DO UPDATE SET
-        enabled_effects = EXCLUDED.enabled_effects,
-        wpm = EXCLUDED.wpm,
-        accuracy = EXCLUDED.accuracy,
-        errors = EXCLUDED.errors,
-        max_combo = EXCLUDED.max_combo,
-        total_characters = EXCLUDED.total_characters,
-        duration = EXCLUDED.duration,
-        survival_time = EXCLUDED.survival_time,
-        completion_rate = EXCLUDED.completion_rate,
-        stress_score = EXCLUDED.stress_score,
-        created_at = EXCLUDED.created_at
-      WHERE 
-        EXCLUDED.stress_score > stress_tests.stress_score 
-        OR (EXCLUDED.stress_score = stress_tests.stress_score AND EXCLUDED.wpm > stress_tests.wpm)
-      RETURNING *, (xmax = 0) as is_insert
+        attempt_count = stress_tests.attempt_count + 1,
+        enabled_effects = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${JSON.stringify(test.enabledEffects)}::jsonb
+          ELSE stress_tests.enabled_effects
+        END,
+        wpm = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.wpm}
+          ELSE stress_tests.wpm
+        END,
+        accuracy = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.accuracy}
+          ELSE stress_tests.accuracy
+        END,
+        errors = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.errors}
+          ELSE stress_tests.errors
+        END,
+        max_combo = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.maxCombo}
+          ELSE stress_tests.max_combo
+        END,
+        total_characters = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.totalCharacters}
+          ELSE stress_tests.total_characters
+        END,
+        duration = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.duration}
+          ELSE stress_tests.duration
+        END,
+        survival_time = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.survivalTime}
+          ELSE stress_tests.survival_time
+        END,
+        completion_rate = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.completionRate}
+          ELSE stress_tests.completion_rate
+        END,
+        stress_score = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN ${test.stressScore}
+          ELSE stress_tests.stress_score
+        END,
+        created_at = CASE 
+          WHEN ${test.stressScore} > stress_tests.stress_score 
+               OR (${test.stressScore} = stress_tests.stress_score AND ${test.wpm} > stress_tests.wpm)
+          THEN NOW()
+          ELSE stress_tests.created_at
+        END
+      RETURNING *, 
+        (stress_score = ${test.stressScore}) as is_new_best
     `);
 
-    // If no rows returned, the WHERE condition failed (existing score is better)
-    // Need to fetch the existing record
+    // Row is always returned since we always update attempt_count
     if (result.rows.length === 0) {
+      // Fallback: fetch existing record (should not happen normally)
       const existing = await db
         .select()
         .from(stressTests)
@@ -4106,11 +4520,8 @@ export class DatabaseStorage implements IStorage {
     }
 
     const row = result.rows[0] as any;
-    // If row was returned, it means either:
-    // 1. New insert (is_insert = true, xmax = 0)
-    // 2. Update occurred because WHERE condition passed (xmax != 0)
-    // Either way, this is a new personal best
-    const isNewPersonalBest = true;
+    // Check if the stored stress_score matches the submitted score (meaning it was updated)
+    const isNewPersonalBest = row.is_new_best === true;
 
     return {
       result: {
@@ -4127,6 +4538,7 @@ export class DatabaseStorage implements IStorage {
         survivalTime: row.survival_time,
         completionRate: row.completion_rate,
         stressScore: row.stress_score,
+        attemptCount: row.attempt_count || 1,
         createdAt: row.created_at,
       },
       isNewPersonalBest,
@@ -4221,6 +4633,10 @@ export class DatabaseStorage implements IStorage {
 
     if (tests.length === 0) return null;
 
+    // Sum up all attempt counts across all difficulties for total tests
+    const totalTests = tests.reduce((sum, t) => sum + (t.attemptCount || 1), 0);
+    
+    // Count difficulties where completion rate >= 100 (completed at least once)
     const completedTests = tests.filter(t => t.completionRate >= 100).length;
     const difficultiesSet = new Set(
       tests.filter(t => t.completionRate >= 100).map(t => t.difficulty)
@@ -4228,7 +4644,7 @@ export class DatabaseStorage implements IStorage {
     const difficultiesCompleted = Array.from(difficultiesSet);
 
     return {
-      totalTests: tests.length,
+      totalTests,
       bestScore: Math.max(...tests.map(t => t.stressScore)),
       avgScore: Math.round(tests.reduce((sum, t) => sum + t.stressScore, 0) / tests.length),
       completedTests,

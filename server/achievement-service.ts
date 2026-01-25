@@ -205,18 +205,36 @@ export class AchievementService {
         } else {
           existing++;
         }
-      } catch (error) {
+      } catch (error: any) {
         errors.push({ key: achievement.key, error });
-        console.error(`[Achievements] Failed to initialize achievement ${achievement.key}:`, error);
+        // Suppress quota exceeded errors to avoid log spam
+        if (!error?.message?.includes('compute time quota')) {
+          console.error(`[Achievements] Failed to initialize achievement ${achievement.key}:`, error);
+        }
       }
     }
     
     console.log(`[Achievements] Achievement system initialized: ${created} created, ${existing} existing, ${errors.length} errors`);
     
     if (errors.length > 0) {
-      console.error(`[Achievements] Failed achievements: ${errors.map(e => e.key).join(', ')}`);
+      // Check if errors are due to quota exceeded
+      const isQuotaExceeded = errors.some(e => (e.error as any)?.message?.includes('compute time quota'));
+      
+      if (isQuotaExceeded) {
+        console.error('[Achievements] Database compute quota exceeded - achievements disabled');
+      } else {
+        console.error(`[Achievements] Failed achievements: ${errors.map(e => e.key).join(', ')}`);
+      }
+      
       if (errors.length === this.achievements.length) {
-        throw new Error('Achievement system initialization completely failed - no achievements could be created');
+        if (isQuotaExceeded) {
+          console.error('[Achievements] The app will continue running but achievements are disabled due to database quota');
+        } else {
+          console.error('[Achievements] Achievement system initialization completely failed - no achievements could be created');
+          console.error('[Achievements] The app will continue running but achievements will be disabled');
+        }
+        // Don't throw error - allow the app to continue without achievements
+        return;
       }
     }
   }

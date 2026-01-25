@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { raceWebSocket } from "./websocket";
 import { metricsCollector } from "./metrics";
+import { redisHealthCheck, REDIS_ENABLED } from "./redis-client";
 
 interface HealthCheckResult {
   status: "healthy" | "degraded" | "unhealthy";
@@ -11,6 +12,7 @@ interface HealthCheckResult {
     websocket: ComponentHealth;
     memory: ComponentHealth;
     cache: ComponentHealth;
+    redis?: ComponentHealth;
   };
   metrics?: ReturnType<typeof metricsCollector.getStats>;
 }
@@ -155,15 +157,70 @@ function checkCache(): ComponentHealth {
   }
 }
 
+async function checkRedis(): Promise<ComponentHealth> {
+  if (!REDIS_ENABLED) {
+    return {
+      status: "healthy",
+      message: "Redis disabled, using in-memory fallback",
+    };
+  }
+  
+  try {
+    const result = await redisHealthCheck();
+    
+    if (!result.healthy) {
+      return {
+        status: "unhealthy",
+        message: "Redis connection failed",
+      };
+    }
+    
+    const REDIS_LATENCY_WARNING_MS = 50;
+    const REDIS_LATENCY_CRITICAL_MS = 200;
+    
+    if (result.latencyMs && result.latencyMs > REDIS_LATENCY_CRITICAL_MS) {
+      return {
+        status: "degraded",
+        latencyMs: result.latencyMs,
+        message: "Redis response time is high",
+      };
+    }
+    
+    if (result.latencyMs && result.latencyMs > REDIS_LATENCY_WARNING_MS) {
+      return {
+        status: "healthy",
+        latencyMs: result.latencyMs,
+        message: "Redis response time is elevated",
+      };
+    }
+    
+    return {
+      status: "healthy",
+      latencyMs: result.latencyMs,
+    };
+  } catch (error: any) {
+    return {
+      status: "unhealthy",
+      message: `Redis check failed: ${error.message}`,
+    };
+  }
+}
+
 export async function performHealthCheck(includeMetrics = false): Promise<HealthCheckResult> {
-  const [database, websocket, memory, cache] = await Promise.all([
+  const [database, websocket, memory, cache, redis] = await Promise.all([
     checkDatabase(),
     Promise.resolve(checkWebSocket()),
     Promise.resolve(checkMemory()),
     Promise.resolve(checkCache()),
+    checkRedis(),
   ]);
   
-  const checks = { database, websocket, memory, cache };
+  const checks: HealthCheckResult['checks'] = { database, websocket, memory, cache };
+  
+  // Only include Redis check if Redis is enabled
+  if (REDIS_ENABLED) {
+    checks.redis = redis;
+  }
   
   const statuses = Object.values(checks).map(c => c.status);
   let overallStatus: "healthy" | "degraded" | "unhealthy";

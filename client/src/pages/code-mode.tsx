@@ -98,6 +98,262 @@ const PROGRAMMING_LANGUAGES = {
   pascal: { name: "Pascal", prism: "pascal", category: "Other" },
 };
 
+// File extension to language key mapping for custom code uploads
+const FILE_EXTENSION_TO_LANGUAGE: Record<string, string> = {
+  '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.ts': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
+  '.jsx': 'jsx', '.tsx': 'tsx',
+  '.py': 'python', '.pyw': 'python',
+  '.java': 'java',
+  '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp', '.hxx': 'cpp',
+  '.c': 'c', '.h': 'c',
+  '.cs': 'csharp',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.rb': 'ruby', '.rake': 'ruby',
+  '.php': 'php',
+  '.swift': 'swift',
+  '.kt': 'kotlin', '.kts': 'kotlin',
+  '.scala': 'scala',
+  '.dart': 'dart',
+  '.html': 'html', '.htm': 'html',
+  '.css': 'css',
+  '.scss': 'scss', '.sass': 'sass', '.less': 'less',
+  '.sql': 'sql',
+  '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash',
+  '.ps1': 'powershell',
+  '.r': 'r', '.R': 'r',
+  '.lua': 'lua',
+  '.pl': 'perl', '.pm': 'perl',
+  '.hs': 'haskell',
+  '.ex': 'elixir', '.exs': 'elixir',
+  '.clj': 'clojure', '.cljs': 'clojure',
+  '.fs': 'fsharp', '.fsx': 'fsharp',
+  '.ml': 'ocaml',
+  '.erl': 'erlang',
+  '.json': 'json',
+  '.yaml': 'yaml', '.yml': 'yaml',
+  '.toml': 'toml',
+  '.xml': 'xml',
+  '.md': 'markdown',
+  '.sol': 'solidity',
+  '.m': 'objectivec',
+  '.zig': 'zig',
+  '.jl': 'julia',
+  '.nim': 'nim',
+  '.cr': 'crystal',
+  '.d': 'd',
+  '.pas': 'pascal',
+  '.f90': 'fortran', '.f95': 'fortran', '.f03': 'fortran',
+  '.scm': 'scheme',
+  '.rkt': 'racket',
+  '.lisp': 'lisp', '.lsp': 'lisp',
+  '.groovy': 'groovy',
+  '.vhdl': 'vhdl', '.vhd': 'vhdl',
+};
+
+// Detect programming language from code content using heuristic patterns
+function detectLanguageFromCode(code: string): string | null {
+  const trimmed = code.trim();
+  const lines = trimmed.split('\n');
+  const firstLines = lines.slice(0, 20).join('\n'); // Check first 20 lines for patterns
+
+  // TypeScript-specific patterns (must check before JavaScript)
+  // Look for type annotations, interfaces, type aliases, enums, generics with type constraints
+  if (/\b(interface|type|enum)\s+\w+/.test(trimmed) ||
+    /:\s*(string|number|boolean|void|any|unknown|never|null|undefined)\b/.test(trimmed) ||
+    /:\s*\w+\[\]/.test(trimmed) || // array type annotations like : string[]
+    /:\s*\w+</.test(trimmed) || // generic type annotations like : Array<string>
+    /<\w+>/.test(trimmed) && /\b(const|let|function|class)\b/.test(trimmed) ||
+    /\bas\s+(string|number|boolean|any|unknown)\b/.test(trimmed) || // type assertions
+    /\bReadonly<|\bPartial<|\bRequired<|\bPick<|\bOmit<|\bRecord</.test(trimmed)) { // utility types
+    return 'typescript';
+  }
+
+  // TSX - TypeScript with JSX (check before JSX)
+  if (/<[A-Z]\w*/.test(trimmed) &&
+    (/:\s*(string|number|boolean|void|any)\b/.test(trimmed) ||
+      /\b(interface|type)\s+\w+/.test(trimmed) ||
+      /:\s*React\./.test(trimmed))) {
+    return 'tsx';
+  }
+
+  // JSX - JavaScript with JSX elements
+  if (/<[A-Z]\w*/.test(trimmed) &&
+    /\b(import|export|const|function)\b/.test(trimmed) &&
+    !/<\?xml/.test(trimmed)) {
+    return 'jsx';
+  }
+
+  // Python patterns
+  if (/^(def|class|import|from)\s+\w+/.test(firstLines) ||
+    /^if\s+__name__\s*==\s*['"]__main__['"]/.test(firstLines) ||
+    /^\s*def\s+\w+\s*\([^)]*\)\s*(->\s*\w+)?\s*:/.test(trimmed) ||
+    /^\s*class\s+\w+(\([^)]*\))?\s*:/.test(trimmed) ||
+    /\bprint\s*\(/.test(trimmed) && !/console\./.test(trimmed) ||
+    /\bself\.\w+/.test(trimmed) ||
+    /^\s*@\w+/.test(firstLines) && /\bdef\s+/.test(trimmed)) { // decorators with def
+    return 'python';
+  }
+
+  // Go patterns
+  if (/^package\s+\w+/.test(firstLines) ||
+    /\bfunc\s+(\(\w+\s+\*?\w+\)\s+)?\w+\s*\(/.test(trimmed) ||
+    /\bgo\s+\w+\(/.test(trimmed) ||
+    /\b(chan|goroutine|defer)\b/.test(trimmed) ||
+    /:=/.test(trimmed) && /\bfunc\b/.test(trimmed)) {
+    return 'go';
+  }
+
+  // Rust patterns
+  if (/\bfn\s+\w+/.test(trimmed) ||
+    /\blet\s+mut\b/.test(trimmed) ||
+    /\b(impl|trait|struct|enum)\s+\w+/.test(trimmed) ||
+    /\bpub\s+(fn|struct|enum|trait|mod)\b/.test(trimmed) ||
+    /->/.test(trimmed) && /\bfn\b/.test(trimmed) ||
+    /\buse\s+\w+::/.test(trimmed) ||
+    /&mut\s+/.test(trimmed) ||
+    /\bOption<|\bResult<|\bVec</.test(trimmed)) {
+    return 'rust';
+  }
+
+  // Java patterns
+  if (/\bpublic\s+(class|interface|enum)\s+\w+/.test(trimmed) ||
+    /\bprivate\s+(static\s+)?(final\s+)?\w+\s+\w+/.test(trimmed) ||
+    /\bpublic\s+static\s+void\s+main\s*\(/.test(trimmed) ||
+    /^import\s+java\./.test(firstLines) ||
+    /\bnew\s+\w+\s*\(/.test(trimmed) && /\bclass\s+\w+/.test(trimmed) ||
+    /@Override/.test(trimmed)) {
+    return 'java';
+  }
+
+  // C# patterns
+  if (/\bnamespace\s+\w+/.test(trimmed) ||
+    /\busing\s+System/.test(firstLines) ||
+    /\bpublic\s+(partial\s+)?(class|interface|struct)\s+\w+/.test(trimmed) ||
+    /\basync\s+Task/.test(trimmed) ||
+    /\bvar\s+\w+\s*=/.test(trimmed) && /\bnamespace\b/.test(trimmed) ||
+    /\[.*\]\s*(public|private|protected)/.test(trimmed)) { // attributes
+    return 'csharp';
+  }
+
+  // C++ patterns
+  if (/^#include\s*<\w+>/.test(firstLines) ||
+    /\bstd::/.test(trimmed) ||
+    /\btemplate\s*</.test(trimmed) ||
+    /\bcout\s*<</.test(trimmed) ||
+    /\bnamespace\s+\w+\s*\{/.test(trimmed) && !/\busing\s+System/.test(trimmed) ||
+    /\bvirtual\s+\w+/.test(trimmed) ||
+    /::/.test(trimmed) && /\bclass\s+\w+/.test(trimmed)) {
+    return 'cpp';
+  }
+
+  // C patterns (after C++ check)
+  if (/^#include\s*[<"]/.test(firstLines) ||
+    /\bprintf\s*\(/.test(trimmed) ||
+    /\bscanf\s*\(/.test(trimmed) ||
+    /\bmalloc\s*\(/.test(trimmed) ||
+    /\bint\s+main\s*\(/.test(trimmed)) {
+    return 'c';
+  }
+
+  // Ruby patterns
+  if (/^require\s+['"]/.test(firstLines) ||
+    /\bdef\s+\w+/.test(trimmed) && /\bend\b/.test(trimmed) && !/\bfunction\b/.test(trimmed) ||
+    /\bclass\s+\w+/.test(trimmed) && /\bend\b/.test(trimmed) && !/\{/.test(trimmed) ||
+    /\bputs\s+/.test(trimmed) ||
+    /\battr_accessor\b/.test(trimmed) ||
+    /\bdo\s*\|/.test(trimmed)) {
+    return 'ruby';
+  }
+
+  // PHP patterns
+  if (/^<\?php/.test(firstLines) ||
+    /\$\w+\s*=/.test(trimmed) ||
+    /\bfunction\s+\w+\s*\([^)]*\)/.test(trimmed) && /\$/.test(trimmed) ||
+    /\becho\s+/.test(trimmed) ||
+    /->/.test(trimmed) && /\$this->/.test(trimmed)) {
+    return 'php';
+  }
+
+  // Swift patterns
+  if (/\bfunc\s+\w+\s*\([^)]*\)\s*(->|\{)/.test(trimmed) && /\blet\s+|\bvar\s+/.test(trimmed) ||
+    /\bguard\s+let\b/.test(trimmed) ||
+    /\bif\s+let\b/.test(trimmed) ||
+    /\bstruct\s+\w+/.test(trimmed) && !/\bnamespace\b/.test(trimmed) ||
+    /^import\s+(Foundation|UIKit|SwiftUI)/.test(firstLines)) {
+    return 'swift';
+  }
+
+  // Kotlin patterns
+  if (/\bfun\s+\w+\s*\(/.test(trimmed) ||
+    /\bval\s+\w+\s*[:=]/.test(trimmed) && !/\bconst\b/.test(trimmed) ||
+    /\bvar\s+\w+\s*[:=]/.test(trimmed) && /\bfun\b/.test(trimmed) ||
+    /\bdata\s+class\b/.test(trimmed) ||
+    /\bsealed\s+class\b/.test(trimmed) ||
+    /\bobject\s+\w+/.test(trimmed) && !/\bnew\b/.test(trimmed)) {
+    return 'kotlin';
+  }
+
+  // SQL patterns
+  if (/\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s+/i.test(trimmed) ||
+    /\bFROM\s+\w+/i.test(trimmed) ||
+    /\bWHERE\s+\w+/i.test(trimmed) ||
+    /\bJOIN\s+\w+/i.test(trimmed)) {
+    return 'sql';
+  }
+
+  // HTML patterns
+  if (/^<!DOCTYPE\s+html/i.test(firstLines) ||
+    /<html[\s>]/i.test(trimmed) ||
+    /<head[\s>].*<\/head>/is.test(trimmed) ||
+    /<body[\s>]/i.test(trimmed)) {
+    return 'html';
+  }
+
+  // CSS patterns
+  if (/^\s*[\.\#\w\[\*][\w\-\[\]='"]*\s*\{[^}]*\}/m.test(trimmed) &&
+    !/\bfunction\b/.test(trimmed) &&
+    !/\bconst\b/.test(trimmed) &&
+    !/\blet\b/.test(trimmed)) {
+    return 'css';
+  }
+
+  // JSON patterns
+  if (/^\s*[\{\[]/.test(trimmed) && /[\}\]]\s*$/.test(trimmed) &&
+    /"[^"]+"\s*:/.test(trimmed)) {
+    return 'json';
+  }
+
+  // YAML patterns
+  if (/^\w+:\s*$/m.test(trimmed) && /^\s+-\s+/m.test(trimmed) ||
+    /^\w+:\s*\|/m.test(trimmed) ||
+    /^---\s*$/m.test(firstLines)) {
+    return 'yaml';
+  }
+
+  // Bash/Shell patterns
+  if (/^#!\/bin\/(bash|sh|zsh)/.test(firstLines) ||
+    /^\s*#!/.test(firstLines) && /\becho\b/.test(trimmed) ||
+    /\bfi\b/.test(trimmed) && /\bif\s+\[/.test(trimmed) ||
+    /\bdone\b/.test(trimmed) && /\bfor\s+\w+\s+in\b/.test(trimmed)) {
+    return 'bash';
+  }
+
+  // JavaScript as fallback for JS-like syntax (must be last among JS/TS family)
+  if (/\b(const|let|var)\s+\w+\s*=/.test(trimmed) ||
+    /\bfunction\s+\w+\s*\(/.test(trimmed) ||
+    /=>\s*[{(]/.test(trimmed) ||
+    /\bconsole\.(log|error|warn)/.test(trimmed) ||
+    /\bmodule\.exports\b/.test(trimmed) ||
+    /^import\s+.*\s+from\s+['"]/.test(firstLines) ||
+    /^export\s+(default\s+)?(function|class|const)/.test(firstLines)) {
+    return 'javascript';
+  }
+
+  return null; // Could not detect
+}
+
 const DIFFICULTIES = [
   { value: "easy", label: "Easy" },
   { value: "medium", label: "Medium" },
@@ -319,6 +575,7 @@ export default function CodeMode() {
   const [showCertificate, setShowCertificate] = useState(false);
   const [certificateImageCopied, setCertificateImageCopied] = useState(false);
   const [isSharingCertificate, setIsSharingCertificate] = useState(false);
+  const [certificateVerificationId, setCertificateVerificationId] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState("");
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isComposing, setIsComposing] = useState(false);
@@ -882,9 +1139,13 @@ export default function CodeMode() {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/code/test-results"] });
       queryClient.invalidateQueries({ queryKey: ["/api/code/leaderboard"] });
+      // Store the certificate verification ID from server response
+      if (data?.certificate?.verificationId) {
+        setCertificateVerificationId(data.certificate.verificationId);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -1175,6 +1436,24 @@ export default function CodeMode() {
       }
     }
 
+    // Shift+Enter to finish test early in No Limit mode (like Monkeytype bailout)
+    if (e.shiftKey && e.key === "Enter" && timeLimit === 0) {
+      e.preventDefault();
+      if (isActive && userInput.length >= 10) {
+        finishTest();
+        toast({
+          title: "Test Finished",
+          description: "You ended the test early with Shift+Enter.",
+        });
+      } else if (isActive && userInput.length < 10) {
+        toast({
+          title: "Keep Typing",
+          description: "Type at least 10 characters before finishing.",
+          variant: "default",
+        });
+      }
+    }
+
     // Escape to reset/restart
     if (e.key === "Escape") {
       resetTest(true); // Escape restarts current test (standard behavior)
@@ -1202,6 +1481,7 @@ export default function CodeMode() {
     setConsistency(100);
     setErrors(0);
     setElapsedTime(0);
+    setCertificateVerificationId(null);
 
     // Reset history
     wpmHistoryRef.current = [];
@@ -1305,16 +1585,20 @@ export default function CodeMode() {
         resetTest(true);
       }
 
-      // Any printable key: if test finished/failed, reset and start new; otherwise focus and type
+      // Any printable key: if test finished/failed AND dialog is closed, reset and start new; otherwise focus and type
+      // Skip if completion dialog or share dialog is open - user is interacting with results
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (isFinished || isFailed) {
-          // Reset and start a new test
-          e.preventDefault();
-          if (mode === "ai") {
-            resetTest(false);
-          } else {
-            resetTest(true);
+          // Only reset if the completion dialog is NOT open (user explicitly closed it)
+          if (!completionDialogOpen && !shareDialogOpen) {
+            e.preventDefault();
+            if (mode === "ai") {
+              resetTest(false);
+            } else {
+              resetTest(true);
+            }
           }
+          // If dialog is open, ignore the keypress - user is viewing results
         } else {
           textareaRef.current?.focus();
         }
@@ -1323,7 +1607,7 @@ export default function CodeMode() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [fetchCodeSnippet, resetTest, isActive, isFinished, isFailed, mode, codeSnippet]);
+  }, [fetchCodeSnippet, resetTest, isActive, isFinished, isFailed, mode, codeSnippet, completionDialogOpen, shareDialogOpen]);
 
   const handleModeSwitch = (newMode: "ai" | "custom") => {
     if (newMode === mode) return;
@@ -1543,7 +1827,7 @@ export default function CodeMode() {
     // Proactive fetching: fetch when 30% of content remains OR less than 300 chars
     // This ensures fast typists never run out of content
     const fetchThreshold = Math.max(300, Math.floor(codeSnippet.length * 0.3));
-    
+
     if (remainingChars <= fetchThreshold && codeSnippet.length > 0) {
       // Check if we have pending content to append first
       if (pendingContentRef.current) {
@@ -1565,7 +1849,7 @@ export default function CodeMode() {
 
     const checkBuffer = () => {
       const remainingChars = codeSnippet.length - userInput.length;
-      
+
       // If buffer is below minimum and not currently loading
       if (remainingChars < MINIMUM_BUFFER && !isLoadingMore && !isFetchingNextRef.current) {
         // Use pending content if available
@@ -1588,7 +1872,7 @@ export default function CodeMode() {
 
     // Check buffer every 500ms to ensure we stay ahead
     const intervalId = setInterval(checkBuffer, 500);
-    
+
     // Initial check
     checkBuffer();
 
@@ -1772,6 +2056,12 @@ export default function CodeMode() {
       setIsFinished(false);
       setIsFailed(false);
 
+      // Detect language from code content for pasted code
+      const detectedLang = detectLanguageFromCode(normalized);
+      if (detectedLang) {
+        setLanguage(detectedLang);
+      }
+
       // Reset stats
       setWpm(0);
       setRawWpm(0);
@@ -1782,10 +2072,13 @@ export default function CodeMode() {
       // Show success with stats
       const lines = normalized.split('\n').length;
       const chars = normalized.length;
+      const langName = detectedLang
+        ? PROGRAMMING_LANGUAGES[detectedLang as keyof typeof PROGRAMMING_LANGUAGES]?.name
+        : null;
 
       toast({
         title: "Custom Code Loaded ✓",
-        description: `${lines} lines, ${chars.toLocaleString()} characters ready for practice.`,
+        description: `${lines} lines, ${chars.toLocaleString()} characters${langName ? ` • Detected: ${langName}` : ''} ready for practice.`,
       });
 
       // Show warning if applicable
@@ -1920,6 +2213,13 @@ export default function CodeMode() {
         // Successfully loaded - update state
         setCustomCode(normalized);
 
+        // Detect language from file extension
+        const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+        const detectedLang = FILE_EXTENSION_TO_LANGUAGE[fileExt];
+        if (detectedLang && detectedLang in PROGRAMMING_LANGUAGES) {
+          setLanguage(detectedLang);
+        }
+
         // Reset any active test state
         if (isActive || codeSnippet) {
           setCodeSnippet("");
@@ -1929,9 +2229,13 @@ export default function CodeMode() {
           setIsFailed(false);
         }
 
+        const langName = detectedLang && detectedLang in PROGRAMMING_LANGUAGES
+          ? PROGRAMMING_LANGUAGES[detectedLang as keyof typeof PROGRAMMING_LANGUAGES]?.name
+          : null;
+
         toast({
           title: "✓ File Loaded Successfully",
-          description: `${file.name} • ${lines} lines • ${chars.toLocaleString()} characters`,
+          description: `${file.name} • ${lines} lines • ${chars.toLocaleString()} characters${langName ? ` • ${langName}` : ''}`,
         });
       };
 
@@ -2057,7 +2361,7 @@ export default function CodeMode() {
       }
       return;
     }
-    
+
     intentionalFocusRef.current = Date.now();
     if (isMobile) {
       syncCaretAnchor();
@@ -2531,7 +2835,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   icon={<Code2 className="w-4 h-4" />}
                   disabled={isActive || mode === "custom"}
                   disabledTooltip={mode === "custom" ? "Custom code defines its own language" : "Cannot change during active test"}
-                  triggerClassName="w-[140px] h-8 text-xs"
+                  triggerClassName="w-[160px] h-8 text-xs"
                   data-testid="select-language"
                 />
                 {mode === "custom" && (
@@ -2584,7 +2888,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   icon={<Target className="w-4 h-4" />}
                   disabled={isActive || mode === "custom"}
                   disabledTooltip={mode === "custom" ? "Custom code uses your code's complexity" : "Cannot change during active test"}
-                  triggerClassName="w-[100px] h-8 text-xs"
+                  triggerClassName="w-[120px] h-8 text-xs"
                   data-testid="select-difficulty"
                 />
                 {mode === "custom" && (
@@ -2637,7 +2941,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   icon={<Gauge className="w-4 h-4" />}
                   disabled={isActive || mode === "custom"}
                   disabledTooltip={mode === "custom" ? "Expert/Master modes are AI-only challenges" : "Cannot change during active test"}
-                  triggerClassName="w-[110px] h-8 text-xs px-2"
+                  triggerClassName="w-[130px] h-8 text-xs px-2"
                   data-testid="select-test-mode"
                 />
                 {mode === "custom" && (
@@ -2698,7 +3002,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   icon={<Timer className="w-4 h-4" />}
                   disabled={isActive}
                   disabledTooltip="Cannot change during active test"
-                  triggerClassName="w-[100px] h-8 text-xs px-2"
+                  triggerClassName="w-[120px] h-8 text-xs px-2"
                   data-testid="select-time"
                 />
               </div>
@@ -3481,6 +3785,34 @@ Understanding your baseline code typing speed can help identify opportunities fo
                     <p className="text-xs">Reset Test (Esc)</p>
                   </TooltipContent>
                 </Tooltip>
+                {/* Finish button for No Limit mode - placed in header for visibility */}
+                {timeLimit === 0 && isActive && userInput.length >= 10 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="h-6 px-3 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          finishTest();
+                          toast({
+                            title: "Test Finished",
+                            description: "You ended the test early.",
+                          });
+                        }}
+                        data-testid="button-finish-test"
+                      >
+                        <Check className="w-3 h-3" />
+                        Finish
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      <p className="text-xs">Finish test and see results (Shift+Enter)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {isActive && (
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full bg-green-500 animate-pulse" />
@@ -3642,7 +3974,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                           <span className="text-sm sm:text-base text-foreground font-medium">Tap to start typing</span>
                         </div>
                         <p className="text-[10px] sm:text-xs text-muted-foreground bg-card/80 px-2 sm:px-3 py-1 rounded-full">
-                          {timeLimit === 0 ? "Infinite mode" : `${timeLimit}s time limit`}
+                          {timeLimit === 0 ? "No limit • Shift+Enter to finish" : `${timeLimit}s time limit`}
                         </p>
                       </div>
                     </div>
@@ -3816,49 +4148,100 @@ Understanding your baseline code typing speed can help identify opportunities fo
 
                   <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-center">Test Complete!</h2>
                   <p className="text-center text-muted-foreground text-sm mb-6">
-                    {PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language} • {difficulty} difficulty
+                    {PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language} • {mode === "custom" ? "Custom Code" : `${difficulty} difficulty`}
                   </p>
 
                   {/* Main Stats - Large WPM and Accuracy */}
                   <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                    <div className="flex flex-col items-center p-3 sm:p-4 bg-background/50 rounded-lg sm:rounded-xl">
-                      <div className="text-muted-foreground text-[10px] sm:text-sm mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2">
-                        <Zap className="w-3 sm:w-4 h-3 sm:h-4" /> WPM
-                      </div>
-                      <div className="text-3xl sm:text-5xl font-mono font-bold text-primary">{wpm}</div>
-                    </div>
-                    <div className="flex flex-col items-center p-3 sm:p-4 bg-background/50 rounded-lg sm:rounded-xl">
-                      <div className="text-muted-foreground text-[10px] sm:text-sm mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2">
-                        <Code className="w-3 sm:w-4 h-3 sm:h-4" /> Accuracy
-                      </div>
-                      <div className={`text-3xl sm:text-5xl font-mono font-bold ${accuracy >= 95 ? 'text-green-500' : accuracy >= 85 ? 'text-yellow-500' : 'text-red-500'}`}>
-                        {accuracy}%
-                      </div>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex flex-col items-center p-3 sm:p-4 bg-background/50 rounded-lg sm:rounded-xl cursor-help touch-manipulation">
+                          <div className="text-muted-foreground text-[10px] sm:text-sm mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2">
+                            <Zap className="w-3 sm:w-4 h-3 sm:h-4" /> WPM
+                          </div>
+                          <div className="text-3xl sm:text-5xl font-mono font-bold text-primary">{wpm}</div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-[200px]">
+                        <p className="font-medium mb-1">Words Per Minute</p>
+                        <p className="text-xs text-muted-foreground">Your typing speed calculated from characters typed (1 word = 5 characters)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex flex-col items-center p-3 sm:p-4 bg-background/50 rounded-lg sm:rounded-xl cursor-help touch-manipulation">
+                          <div className="text-muted-foreground text-[10px] sm:text-sm mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2">
+                            <Code className="w-3 sm:w-4 h-3 sm:h-4" /> Accuracy
+                          </div>
+                          <div className={`text-3xl sm:text-5xl font-mono font-bold ${accuracy >= 95 ? 'text-green-500' : accuracy >= 85 ? 'text-yellow-500' : 'text-red-500'}`}>
+                            {accuracy}%
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-[200px]">
+                        <p className="font-medium mb-1">Accuracy Rate</p>
+                        <p className="text-xs text-muted-foreground">Percentage of correctly typed characters without errors</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {/* Secondary Stats */}
                   <div className="space-y-1.5 sm:space-y-2 mb-4 sm:mb-6">
-                    <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
-                      <span>Raw WPM</span>
-                      <span className="font-mono text-foreground">{rawWpm}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
-                      <span>Consistency</span>
-                      <span className="font-mono text-foreground">{consistency}%</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
-                      <span>Errors</span>
-                      <span className={`font-mono ${errors > 0 ? 'text-red-500' : 'text-green-500'}`}>{errors}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
-                      <span>Characters</span>
-                      <span className="font-mono text-foreground">{userInput.length}</span>
-                    </div>
-                    <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
-                      <span>Time</span>
-                      <span className="font-mono text-foreground">{formatTime(elapsedTime)}</span>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex justify-between text-xs sm:text-sm text-muted-foreground py-1 px-2 -mx-2 rounded-md hover:bg-muted/30 cursor-help touch-manipulation">
+                          <span>Raw WPM</span>
+                          <span className="font-mono text-foreground">{rawWpm}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">Uncorrected typing speed including all keystrokes, even errors</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex justify-between text-xs sm:text-sm text-muted-foreground py-1 px-2 -mx-2 rounded-md hover:bg-muted/30 cursor-help touch-manipulation">
+                          <span>Consistency</span>
+                          <span className="font-mono text-foreground">{consistency}%</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">How steady your typing speed was throughout the test (higher is better)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex justify-between text-xs sm:text-sm text-muted-foreground py-1 px-2 -mx-2 rounded-md hover:bg-muted/30 cursor-help touch-manipulation">
+                          <span>Errors</span>
+                          <span className={`font-mono ${errors > 0 ? 'text-red-500' : 'text-green-500'}`}>{errors}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">Total incorrect keystrokes made during the test</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex justify-between text-xs sm:text-sm text-muted-foreground py-1 px-2 -mx-2 rounded-md hover:bg-muted/30 cursor-help touch-manipulation">
+                          <span>Characters</span>
+                          <span className="font-mono text-foreground">{userInput.length}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">Total characters typed in this test</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex justify-between text-xs sm:text-sm text-muted-foreground py-1 px-2 -mx-2 rounded-md hover:bg-muted/30 cursor-help touch-manipulation">
+                          <span>Time</span>
+                          <span className="font-mono text-foreground">{formatTime(elapsedTime)}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-[200px]">
+                        <p className="text-xs">Duration of your typing test</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {/* Celebratory Share Prompt */}
@@ -3876,69 +4259,97 @@ Understanding your baseline code typing speed can help identify opportunities fo
                     <p className="text-xs sm:text-sm text-muted-foreground mb-2 sm:mb-3">
                       {getCelebratoryMessage(wpm, accuracy)}
                     </p>
-                    <motion.button
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => {
-                        // Don't close completion dialog - just open share dialog on top
-                        setShareDialogTab("quick");
-                        setCertificateOnlyMode(false);
-                        setShareDialogOpen(true);
-                      }}
-                      className="group inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 text-white text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 transition-all"
-                      data-testid="button-share-celebration"
-                    >
-                      <Share2 className="w-3.5 sm:w-4 h-3.5 sm:h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                      Share Result
-                    </motion.button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <motion.button
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => {
+                            // Don't close completion dialog - just open share dialog on top
+                            setShareDialogTab("quick");
+                            setCertificateOnlyMode(false);
+                            setShareDialogOpen(true);
+                          }}
+                          className="group inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 min-h-[44px] rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 text-white text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 transition-all touch-manipulation"
+                          data-testid="button-share-celebration"
+                        >
+                          <Share2 className="w-3.5 sm:w-4 h-3.5 sm:h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                          Share Result
+                        </motion.button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Share your achievement on social media</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </motion.div>
 
                   {/* Action Buttons */}
                   <div className="flex flex-col gap-2 sm:gap-3">
                     {user && (
-                      <button
-                        onClick={() => {
-                          // Don't close completion dialog - just open share dialog on top
-                          setShareDialogTab("certificate");
-                          setCertificateOnlyMode(true);
-                          setShareDialogOpen(true);
-                        }}
-                        className="w-full py-2 sm:py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white text-xs sm:text-base font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2"
-                        data-testid="button-get-certificate"
-                      >
-                        <Award className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
-                        Get Certificate
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              // Don't close completion dialog - just open share dialog on top
+                              setShareDialogTab("certificate");
+                              setCertificateOnlyMode(true);
+                              setShareDialogOpen(true);
+                            }}
+                            className="w-full min-h-[44px] py-2 sm:py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white text-xs sm:text-base font-bold rounded-lg hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 touch-manipulation"
+                            data-testid="button-get-certificate"
+                          >
+                            <Award className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
+                            Get Certificate
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Download your official typing certificate</p>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                     <div className="flex gap-2 sm:gap-3 min-w-0">
-                      <button
-                        onClick={() => {
-                          setCompletionDialogOpen(false);
-                          if (mode === "ai") {
-                            resetTest(false); // Reset all state and fetch new code
-                          } else {
-                            // In custom mode, reset with same code
-                            resetTest(true);
-                          }
-                        }}
-                        disabled={isLoading}
-                        className="flex-1 min-w-0 py-2.5 sm:py-3 bg-primary text-primary-foreground text-xs sm:text-base font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1 sm:gap-2 disabled:opacity-50"
-                        data-testid="button-new-snippet"
-                      >
-                        <Zap className="w-3.5 sm:w-4 h-3.5 sm:h-4 shrink-0" />
-                        <span className="truncate">{mode === "ai" ? "New Code" : "Try Again"}</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setCompletionDialogOpen(false);
-                          resetTest();
-                        }}
-                        className="px-3 sm:px-6 py-2.5 sm:py-3 border border-border text-xs sm:text-base rounded-lg hover:bg-accent transition-colors flex items-center justify-center gap-1 sm:gap-2 shrink-0"
-                        data-testid="button-try-again"
-                      >
-                        <RotateCcw className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
-                        <span className="hidden xs:inline">Retry</span>
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              setCompletionDialogOpen(false);
+                              if (mode === "ai") {
+                                resetTest(false); // Reset all state and fetch new code
+                              } else {
+                                // In custom mode, reset with same code
+                                resetTest(true);
+                              }
+                            }}
+                            disabled={isLoading}
+                            className="flex-1 min-w-0 min-h-[44px] py-2.5 sm:py-3 bg-primary text-primary-foreground text-xs sm:text-base font-bold rounded-lg hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1 sm:gap-2 disabled:opacity-50 touch-manipulation"
+                            data-testid="button-new-snippet"
+                          >
+                            <Zap className="w-3.5 sm:w-4 h-3.5 sm:h-4 shrink-0" />
+                            <span className="truncate">{mode === "ai" ? "New Code" : "Try Again"}</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">{mode === "ai" ? "Generate a new code snippet" : "Retry with the same code"}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              setCompletionDialogOpen(false);
+                              resetTest();
+                            }}
+                            className="px-3 sm:px-6 min-h-[44px] py-2.5 sm:py-3 border border-border text-xs sm:text-base rounded-lg hover:bg-accent active:scale-[0.98] transition-all flex items-center justify-center gap-1 sm:gap-2 shrink-0 touch-manipulation"
+                            data-testid="button-try-again"
+                          >
+                            <RotateCcw className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                            <span className="hidden xs:inline">Retry</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Restart with same settings</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
 
@@ -4003,11 +4414,41 @@ Understanding your baseline code typing speed can help identify opportunities fo
             <Tabs value={shareDialogTab} onValueChange={(v) => setShareDialogTab(v as typeof shareDialogTab)} className="w-full">
               {/* Hide tabs when in certificate-only mode (opened from Get Certificate button) */}
               {!certificateOnlyMode && (
-                <TabsList className={`grid w-full mb-3 sm:mb-4 h-auto ${user ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                  <TabsTrigger value="quick" className="text-[10px] sm:text-sm py-1.5 sm:py-2" data-testid="tab-quick-share">Share</TabsTrigger>
-                  <TabsTrigger value="visual" className="text-[10px] sm:text-sm py-1.5 sm:py-2" data-testid="tab-visual-card">Card</TabsTrigger>
-                  {user && <TabsTrigger value="certificate" className="text-[10px] sm:text-sm py-1.5 sm:py-2" data-testid="tab-certificate"><span className="sm:hidden">Cert</span><span className="hidden sm:inline">Certificate</span></TabsTrigger>}
-                  <TabsTrigger value="challenge" className="text-[10px] sm:text-sm py-1.5 sm:py-2" data-testid="tab-challenge">Challenge</TabsTrigger>
+                <TabsList className={`grid w-full mb-3 sm:mb-4 h-auto p-1.5 bg-muted/80 rounded-xl border border-border ${user ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="quick" className="text-[10px] sm:text-sm py-2 sm:py-2.5 min-h-[40px] touch-manipulation rounded-lg text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md transition-all" data-testid="tab-quick-share">Share</TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">Copy and share on social media</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="visual" className="text-[10px] sm:text-sm py-2 sm:py-2.5 min-h-[40px] touch-manipulation rounded-lg text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md transition-all" data-testid="tab-visual-card">Card</TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">Generate a visual share card</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  {user && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <TabsTrigger value="certificate" className="text-[10px] sm:text-sm py-2 sm:py-2.5 min-h-[40px] touch-manipulation rounded-lg text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md transition-all" data-testid="tab-certificate"><span className="sm:hidden">Cert</span><span className="hidden sm:inline">Certificate</span></TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p className="text-xs">Get your official certificate</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger value="challenge" className="text-[10px] sm:text-sm py-2 sm:py-2.5 min-h-[40px] touch-manipulation rounded-lg text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:font-semibold data-[state=active]:shadow-md transition-all" data-testid="tab-challenge">Challenge</TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">Challenge friends to beat your score</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </TabsList>
               )}
 
@@ -4039,7 +4480,10 @@ Understanding your baseline code typing speed can help identify opportunities fo
                         🎯 Badge: <span className="text-foreground font-semibold">{getCodePerformanceRating(wpm, accuracy).badge}</span>
                       </p>
                       <p className="text-muted-foreground">
-                        📊 Difficulty: <span className="text-foreground font-semibold">{difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}</span>
+                        {mode === "custom"
+                          ? <>💻 Mode: <span className="text-foreground font-semibold">Custom Code</span></>
+                          : <>📊 Difficulty: <span className="text-foreground font-semibold">{difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}</span></>
+                        }
                       </p>
                       <p className="text-primary/80 text-xs mt-3 font-medium">
                         Can you code faster? Take the challenge! 🚀
@@ -4058,7 +4502,8 @@ Understanding your baseline code typing speed can help identify opportunities fo
                         onClick={() => {
                           const rating = getCodePerformanceRating(wpm, accuracy);
                           const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
-                          const text = `${rating.emoji} Code Typing: ${wpm} WPM!\n\n💻 Language: ${langName}\n⚡ Speed: ${wpm} Words Per Minute\n✨ Accuracy: ${accuracy}%\n🏆 Level: ${rating.title}\n🎯 Badge: ${rating.badge}\n📊 Difficulty: ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}\n\nCan you code faster? Take the challenge! 🚀\n\n👉 https://typemasterai.com/code-mode\n\n#CodeTyping #TypeMasterAI #Developer #WPM`;
+                          const modeInfo = mode === "custom" ? "💻 Mode: Custom Code" : `📊 Difficulty: ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}`;
+                          const text = `${rating.emoji} Code Typing: ${wpm} WPM!\n\n💻 Language: ${langName}\n⚡ Speed: ${wpm} Words Per Minute\n✨ Accuracy: ${accuracy}%\n🏆 Level: ${rating.title}\n🎯 Badge: ${rating.badge}\n${modeInfo}\n\nCan you code faster? Take the challenge! 🚀\n\n👉 https://typemasterai.com/code-mode\n\n#CodeTyping #TypeMasterAI #Developer #WPM`;
                           navigator.clipboard.writeText(text);
                           toast({ title: "Message Copied!", description: "Share message copied to clipboard" });
                         }}
@@ -4084,7 +4529,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('twitter')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/25 border border-[#1DA1F2]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/25 active:scale-[0.98] border border-[#1DA1F2]/20 transition-all group touch-manipulation"
                           data-testid="button-share-twitter"
                         >
                           <Twitter className="w-4 h-4 text-[#1DA1F2] shrink-0" />
@@ -4099,7 +4544,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('facebook')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/25 border border-[#1877F2]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/25 active:scale-[0.98] border border-[#1877F2]/20 transition-all group touch-manipulation"
                           data-testid="button-share-facebook"
                         >
                           <Facebook className="w-4 h-4 text-[#1877F2] shrink-0" />
@@ -4114,7 +4559,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('linkedin')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#0A66C2]/10 hover:bg-[#0A66C2]/25 border border-[#0A66C2]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#0A66C2]/10 hover:bg-[#0A66C2]/25 active:scale-[0.98] border border-[#0A66C2]/20 transition-all group touch-manipulation"
                           data-testid="button-share-linkedin"
                         >
                           <Linkedin className="w-4 h-4 text-[#0A66C2] shrink-0" />
@@ -4129,7 +4574,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('whatsapp')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/25 border border-[#25D366]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/25 active:scale-[0.98] border border-[#25D366]/20 transition-all group touch-manipulation"
                           data-testid="button-share-whatsapp"
                         >
                           <MessageCircle className="w-4 h-4 text-[#25D366] shrink-0" />
@@ -4144,7 +4589,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('discord')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#5865F2]/10 hover:bg-[#5865F2]/25 border border-[#5865F2]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#5865F2]/10 hover:bg-[#5865F2]/25 active:scale-[0.98] border border-[#5865F2]/20 transition-all group touch-manipulation"
                           data-testid="button-share-discord"
                         >
                           <svg className="w-4 h-4 text-[#5865F2] shrink-0" viewBox="0 0 24 24" fill="currentColor">
@@ -4161,7 +4606,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => shareToSocial('telegram')}
-                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/25 border border-[#0088cc]/20 transition-all group"
+                          className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/25 active:scale-[0.98] border border-[#0088cc]/20 transition-all group touch-manipulation"
                           data-testid="button-share-telegram"
                         >
                           <Send className="w-4 h-4 text-[#0088cc] shrink-0" />
@@ -4177,14 +4622,21 @@ Understanding your baseline code typing speed can help identify opportunities fo
 
                 {/* Native Share */}
                 {'share' in navigator && (
-                  <button
-                    onClick={handleNativeShare}
-                    className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-primary/10 to-purple-500/10 text-foreground text-sm sm:text-base font-medium rounded-lg sm:rounded-xl hover:from-primary/20 hover:to-purple-500/20 transition-all flex items-center justify-center gap-2 border border-primary/20"
-                    data-testid="button-native-share"
-                  >
-                    <Share2 className="w-4 h-4 shrink-0" />
-                    <span className="truncate">More Sharing Options</span>
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleNativeShare}
+                        className="w-full min-h-[44px] py-2.5 sm:py-3 bg-gradient-to-r from-primary/10 to-purple-500/10 text-foreground text-sm sm:text-base font-medium rounded-lg sm:rounded-xl hover:from-primary/20 hover:to-purple-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 border border-primary/20 touch-manipulation"
+                        data-testid="button-native-share"
+                      >
+                        <Share2 className="w-4 h-4 shrink-0" />
+                        <span className="truncate">More Sharing Options</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Open system share menu</p>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </TabsContent>
 
@@ -4202,6 +4654,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   errors={errors}
                   time={formatTime(elapsedTime)}
                   username={user?.username}
+                  isCustomMode={mode === "custom"}
                 />
               </TabsContent>
 
@@ -4221,22 +4674,50 @@ Understanding your baseline code typing speed can help identify opportunities fo
                   {/* Certificate Stats Preview */}
                   <div className="p-3 sm:p-4 bg-gradient-to-br from-yellow-500/10 via-orange-500/10 to-purple-500/10 rounded-lg sm:rounded-xl border border-yellow-500/20">
                     <div className="grid grid-cols-2 gap-2 sm:gap-3 text-center">
-                      <div className="min-w-0">
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Typing Speed</p>
-                        <p className="text-xl sm:text-2xl font-bold text-primary">{wpm} WPM</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Accuracy</p>
-                        <p className="text-xl sm:text-2xl font-bold text-green-400">{accuracy}%</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Performance</p>
-                        <p className="text-xs sm:text-sm font-bold text-yellow-400 truncate">{getCodePerformanceRating(wpm, accuracy).badge}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Language</p>
-                        <p className="text-xs sm:text-sm font-bold truncate">{PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}</p>
-                      </div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="min-w-0 cursor-help p-1 rounded-md hover:bg-muted/20 touch-manipulation">
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Typing Speed</p>
+                            <p className="text-xl sm:text-2xl font-bold text-primary">{wpm} WPM</p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Your words per minute on certificate</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="min-w-0 cursor-help p-1 rounded-md hover:bg-muted/20 touch-manipulation">
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Accuracy</p>
+                            <p className="text-xl sm:text-2xl font-bold text-green-400">{accuracy}%</p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Your accuracy rate on certificate</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="min-w-0 cursor-help p-1 rounded-md hover:bg-muted/20 touch-manipulation">
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Performance</p>
+                            <p className="text-xs sm:text-sm font-bold text-yellow-400 truncate">{getCodePerformanceRating(wpm, accuracy).badge}</p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Your earned performance badge</p>
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="min-w-0 cursor-help p-1 rounded-md hover:bg-muted/20 touch-manipulation">
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Language</p>
+                            <p className="text-xs sm:text-sm font-bold truncate">{PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}</p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Programming language tested</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
 
@@ -4254,137 +4735,167 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       errors={errors}
                       time={formatTime(elapsedTime)}
                       username={user?.username}
+                      isCustomMode={mode === "custom"}
+                      verificationId={certificateVerificationId || undefined}
                     />
                   </div>
 
                   {/* View, Download & Share Certificate Buttons */}
                   <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                    <button
-                      onClick={() => {
-                        // Close share dialog first to avoid overlapping modals and body scroll lock
-                        setShareDialogOpen(false);
-                        setTimeout(() => setShowCertificate(true), 50);
-                      }}
-                      className="min-h-[44px] py-2.5 sm:py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-purple-500/25 touch-manipulation"
-                      data-testid="button-view-certificate-share"
-                    >
-                      <Award className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
-                      <span className="truncate">View</span>
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
-                        if (!certCanvas) {
-                          toast({ title: "Certificate not ready", description: "Please try again.", variant: "destructive" });
-                          return;
-                        }
-                        try {
-                          const blob = await new Promise<Blob>((resolve, reject) => {
-                            certCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Failed")), "image/png");
-                          });
-                          // Check if clipboard API with images is supported
-                          if (navigator.clipboard && 'write' in navigator.clipboard) {
-                            await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-                            setCertificateImageCopied(true);
-                            setTimeout(() => setCertificateImageCopied(false), 2000);
-                            toast({ title: "Certificate Copied!", description: "Paste directly into Twitter, Discord, or LinkedIn!" });
-                          } else {
-                            // Fallback: trigger download on mobile
-                            const link = document.createElement("a");
-                            link.download = `TypeMasterAI_Certificate_${wpm}WPM.png`;
-                            link.href = URL.createObjectURL(blob);
-                            link.click();
-                            URL.revokeObjectURL(link.href);
-                            toast({ title: "Certificate Downloaded!", description: "Image copy not supported - downloaded instead." });
-                          }
-                        } catch {
-                          toast({ title: "Copy Failed", description: "Please use Share or Download instead.", variant: "destructive" });
-                        }
-                      }}
-                      className="min-h-[44px] py-2.5 sm:py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-green-500/25 touch-manipulation"
-                      data-testid="button-copy-certificate-image"
-                    >
-                      {certificateImageCopied ? <Check className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" /> : <Copy className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />}
-                      <span className="truncate">{certificateImageCopied ? "Copied!" : "Copy"}</span>
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            // Close share dialog first to avoid overlapping modals and body scroll lock
+                            setShareDialogOpen(false);
+                            setTimeout(() => setShowCertificate(true), 50);
+                          }}
+                          className="min-h-[44px] py-2.5 sm:py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-purple-500/25 touch-manipulation"
+                          data-testid="button-view-certificate-share"
+                        >
+                          <Award className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
+                          <span className="truncate">View</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Preview your full certificate</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={async () => {
+                            const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
+                            if (!certCanvas) {
+                              toast({ title: "Certificate not ready", description: "Please try again.", variant: "destructive" });
+                              return;
+                            }
+                            try {
+                              const blob = await new Promise<Blob>((resolve, reject) => {
+                                certCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Failed")), "image/png");
+                              });
+                              // Check if clipboard API with images is supported
+                              if (navigator.clipboard && 'write' in navigator.clipboard) {
+                                await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                                setCertificateImageCopied(true);
+                                setTimeout(() => setCertificateImageCopied(false), 2000);
+                                toast({ title: "Certificate Copied!", description: "Paste directly into Twitter, Discord, or LinkedIn!" });
+                              } else {
+                                // Fallback: trigger download on mobile
+                                const link = document.createElement("a");
+                                link.download = `TypeMasterAI_Certificate_${wpm}WPM.png`;
+                                link.href = URL.createObjectURL(blob);
+                                link.click();
+                                URL.revokeObjectURL(link.href);
+                                toast({ title: "Certificate Downloaded!", description: "Image copy not supported - downloaded instead." });
+                              }
+                            } catch {
+                              toast({ title: "Copy Failed", description: "Please use Share or Download instead.", variant: "destructive" });
+                            }
+                          }}
+                          className="min-h-[44px] py-2.5 sm:py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-green-500/25 touch-manipulation"
+                          data-testid="button-copy-certificate-image"
+                        >
+                          {certificateImageCopied ? <Check className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" /> : <Copy className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />}
+                          <span className="truncate">{certificateImageCopied ? "Copied!" : "Copy"}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Copy image to clipboard for pasting</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {/* Download Certificate Button with Format Options */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        className="w-full gap-1.5 sm:gap-2 min-h-[44px] h-10 sm:h-11 text-xs sm:text-sm text-white font-semibold bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 active:scale-[0.98] transition-all touch-manipulation"
-                        data-testid="button-download-certificate-format"
-                      >
-                        <Download className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
-                        <span className="truncate">Download</span>
-                        <ChevronDown className="w-3 sm:w-4 h-3 sm:h-4 ml-auto shrink-0" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="center" className="w-48 sm:w-56 z-[110]">
-                      <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("png")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
-                        <FileImage className="w-4 h-4 mr-2 shrink-0" />
-                        Download as PNG
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("jpg")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
-                        <FileImage className="w-4 h-4 mr-2 shrink-0" />
-                        Download as JPG
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("pdf")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
-                        <FileText className="w-4 h-4 mr-2 shrink-0" />
-                        Download as PDF
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            className="w-full gap-1.5 sm:gap-2 min-h-[44px] h-10 sm:h-11 text-xs sm:text-sm text-white font-semibold bg-gradient-to-r from-blue-500 to-indigo-600 hover:opacity-90 active:scale-[0.98] transition-all touch-manipulation"
+                            data-testid="button-download-certificate-format"
+                          >
+                            <Download className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
+                            <span className="truncate">Download</span>
+                            <ChevronDown className="w-3 sm:w-4 h-3 sm:h-4 ml-auto shrink-0" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" className="w-48 sm:w-56 z-[200]">
+                          <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("png")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
+                            <FileImage className="w-4 h-4 mr-2 shrink-0" />
+                            Download as PNG
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("jpg")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
+                            <FileImage className="w-4 h-4 mr-2 shrink-0" />
+                            Download as JPG
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => downloadCertificateFromCanvas("pdf")} className="cursor-pointer text-xs sm:text-sm min-h-[40px] touch-manipulation">
+                            <FileText className="w-4 h-4 mr-2 shrink-0" />
+                            Download as PDF
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Save certificate to your device</p>
+                    </TooltipContent>
+                  </Tooltip>
 
                   {/* Share Certificate with Image Button */}
                   {'share' in navigator && (
-                    <button
-                      onClick={async () => {
-                        const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
-                        if (!certCanvas) {
-                          toast({ title: "Certificate not ready", description: "Please try again.", variant: "destructive" });
-                          return;
-                        }
-                        setIsSharingCertificate(true);
-                        try {
-                          const blob = await new Promise<Blob>((resolve, reject) => {
-                            certCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Failed")), "image/png");
-                          });
-                          const file = new File([blob], `TypeMasterAI_Code_Certificate_${wpm}WPM.png`, { type: "image/png" });
-                          if (navigator.canShare?.({ files: [file] })) {
-                            const rating = getCodePerformanceRating(wpm, accuracy);
-                            await navigator.share({
-                              title: `TypeMasterAI Code Certificate - ${wpm} WPM`,
-                              text: `🎓 I earned a ${rating.badge} Code Typing Certificate!\n\n⚡ ${wpm} WPM | ✨ ${accuracy}% Accuracy\n💻 ${PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}\n🏆 ${rating.title}\n\nCan you beat my score?\n\n🔗 typemasterai.com/code-mode`,
-                              files: [file],
-                            });
-                            toast({ title: "Certificate Shared!", description: "Your achievement is on its way!" });
-                          } else {
-                            // Fallback: share without file if file sharing not supported
-                            const rating = getCodePerformanceRating(wpm, accuracy);
-                            await navigator.share({
-                              title: `TypeMasterAI Code Certificate - ${wpm} WPM`,
-                              text: `🎓 I earned a ${rating.badge} Code Typing Certificate!\n\n⚡ ${wpm} WPM | ✨ ${accuracy}% Accuracy\n💻 ${PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}\n🏆 ${rating.title}\n\nCan you beat my score?\n\n🔗 typemasterai.com/code-mode`,
-                              url: 'https://typemasterai.com/code-mode',
-                            });
-                            toast({ title: "Share Link Opened!", description: "Download the certificate to attach it manually." });
-                          }
-                        } catch (error: any) {
-                          if (error.name !== 'AbortError') {
-                            toast({ title: "Share failed", description: "Please try Download instead.", variant: "destructive" });
-                          }
-                        } finally {
-                          setIsSharingCertificate(false);
-                        }
-                      }}
-                      disabled={isSharingCertificate}
-                      className="w-full min-h-[48px] py-3 sm:py-4 bg-gradient-to-r from-yellow-500 via-orange-500 to-pink-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
-                      data-testid="button-share-certificate-with-image"
-                    >
-                      <Share2 className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
-                      <span className="truncate">{isSharingCertificate ? "Preparing..." : "Share with Image"}</span>
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={async () => {
+                            const certCanvas = document.querySelector('[data-testid="certificate-canvas"]') as HTMLCanvasElement;
+                            if (!certCanvas) {
+                              toast({ title: "Certificate not ready", description: "Please try again.", variant: "destructive" });
+                              return;
+                            }
+                            setIsSharingCertificate(true);
+                            try {
+                              const blob = await new Promise<Blob>((resolve, reject) => {
+                                certCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Failed")), "image/png");
+                              });
+                              const file = new File([blob], `TypeMasterAI_Code_Certificate_${wpm}WPM.png`, { type: "image/png" });
+                              if (navigator.canShare?.({ files: [file] })) {
+                                const rating = getCodePerformanceRating(wpm, accuracy);
+                                await navigator.share({
+                                  title: `TypeMasterAI Code Certificate - ${wpm} WPM`,
+                                  text: `🎓 I earned a ${rating.badge} Code Typing Certificate!\n\n⚡ ${wpm} WPM | ✨ ${accuracy}% Accuracy\n💻 ${PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}\n🏆 ${rating.title}\n\nCan you beat my score?\n\n🔗 typemasterai.com/code-mode`,
+                                  files: [file],
+                                });
+                                toast({ title: "Certificate Shared!", description: "Your achievement is on its way!" });
+                              } else {
+                                // Fallback: share without file if file sharing not supported
+                                const rating = getCodePerformanceRating(wpm, accuracy);
+                                await navigator.share({
+                                  title: `TypeMasterAI Code Certificate - ${wpm} WPM`,
+                                  text: `🎓 I earned a ${rating.badge} Code Typing Certificate!\n\n⚡ ${wpm} WPM | ✨ ${accuracy}% Accuracy\n💻 ${PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}\n🏆 ${rating.title}\n\nCan you beat my score?\n\n🔗 typemasterai.com/code-mode`,
+                                  url: 'https://typemasterai.com/code-mode',
+                                });
+                                toast({ title: "Share Link Opened!", description: "Download the certificate to attach it manually." });
+                              }
+                            } catch (error: any) {
+                              if (error.name !== 'AbortError') {
+                                toast({ title: "Share failed", description: "Please try Download instead.", variant: "destructive" });
+                              }
+                            } finally {
+                              setIsSharingCertificate(false);
+                            }
+                          }}
+                          disabled={isSharingCertificate}
+                          className="w-full min-h-[48px] py-3 sm:py-4 bg-gradient-to-r from-yellow-500 via-orange-500 to-pink-500 text-white text-xs sm:text-sm font-bold rounded-lg sm:rounded-xl hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+                          data-testid="button-share-certificate-with-image"
+                        >
+                          <Share2 className="w-4 sm:w-5 h-4 sm:h-5 shrink-0" />
+                          <span className="truncate">{isSharingCertificate ? "Preparing..." : "Share with Image"}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Share certificate image directly to apps</p>
+                      </TooltipContent>
+                    </Tooltip>
                   )}
 
                   {/* Certificate Share Message Preview */}
@@ -4466,6 +4977,7 @@ Understanding your baseline code typing speed can help identify opportunities fo
                       <button
                         onClick={() => {
                           const rating = getCodePerformanceRating(wpm, accuracy);
+                          const modeText = mode === "custom" ? "Custom Code" : `${difficulty} difficulty level`;
                           const text = encodeURIComponent(`🎓 I just earned my official TypeMasterAI Code Typing Certificate!
 
 Achieved ${wpm} WPM with ${accuracy}% accuracy typing ${PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}! 🎯
@@ -4473,7 +4985,7 @@ Achieved ${wpm} WPM with ${accuracy}% accuracy typing ${PROGRAMMING_LANGUAGES[la
 📜 What I certified:
 • ${rating.title} performance level
 • ${rating.badge} Badge earned
-• ${difficulty} difficulty level
+• ${modeText}
 
 Ready to earn yours? 🚀`);
                           window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/code-mode')}&quote=${text}`, '_blank', 'width=600,height=400');
@@ -4568,23 +5080,51 @@ Ready to earn yours? 🚀`);
                 <div className="p-3 sm:p-4 bg-gradient-to-br from-orange-500/10 to-red-500/10 rounded-lg sm:rounded-xl border border-orange-500/30">
                   <div className="flex items-center justify-between mb-2 sm:mb-3">
                     <span className="text-xs sm:text-sm font-medium text-muted-foreground">Score to Beat</span>
-                    <span className="px-1.5 sm:px-2 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] sm:text-xs font-medium rounded-full truncate max-w-[100px]">
-                      {getCodePerformanceRating(wpm, accuracy).badge}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="px-1.5 sm:px-2 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] sm:text-xs font-medium rounded-full truncate max-w-[100px] cursor-help">
+                          {getCodePerformanceRating(wpm, accuracy).badge}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Your performance badge</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
-                    <div className="min-w-0">
-                      <div className="text-xl sm:text-2xl font-bold text-primary">{wpm}</div>
-                      <div className="text-[10px] sm:text-xs text-muted-foreground">WPM</div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xl sm:text-2xl font-bold text-green-400">{accuracy}%</div>
-                      <div className="text-[10px] sm:text-xs text-muted-foreground">Accuracy</div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm sm:text-2xl font-bold truncate">{PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}</div>
-                      <div className="text-[10px] sm:text-xs text-muted-foreground">Language</div>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="min-w-0 cursor-help touch-manipulation p-1 rounded-md hover:bg-muted/20">
+                          <div className="text-xl sm:text-2xl font-bold text-primary">{wpm}</div>
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">WPM</div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Your typing speed to beat</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="min-w-0 cursor-help touch-manipulation p-1 rounded-md hover:bg-muted/20">
+                          <div className="text-xl sm:text-2xl font-bold text-green-400">{accuracy}%</div>
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">Accuracy</div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Your accuracy to match or beat</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="min-w-0 cursor-help touch-manipulation p-1 rounded-md hover:bg-muted/20">
+                          <div className="text-sm sm:text-2xl font-bold truncate">{PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name}</div>
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">Language</div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Programming language used</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
 
@@ -4644,7 +5184,7 @@ Ready to earn yours? 🚀`);
                           navigator.clipboard.writeText(text);
                           toast({ title: "Challenge Copied!", description: "Now send it to your friends!" });
                         }}
-                        className="absolute top-3 right-3 p-1.5 rounded-md bg-background/80 hover:bg-background border border-border/50 transition-colors"
+                        className="absolute top-3 right-3 p-2 min-w-[36px] min-h-[36px] rounded-md bg-background/80 hover:bg-background active:scale-[0.95] border border-border/50 transition-all touch-manipulation flex items-center justify-center"
                         data-testid="button-copy-challenge-message"
                       >
                         <Copy className="w-3.5 h-3.5 text-muted-foreground" />
@@ -4656,8 +5196,9 @@ Ready to earn yours? 🚀`);
                   </Tooltip>
                 </div>
 
-                {/* Quick Challenge Share */}
-                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                {/* Quick Challenge Share - Social Platforms */}
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                  {/* X/Twitter */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -4667,17 +5208,19 @@ Ready to earn yours? 🚀`);
                           const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent('https://typemasterai.com/code-mode')}`;
                           window.open(url, '_blank');
                         }}
-                        className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/25 border border-[#1DA1F2]/20 transition-all"
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/25 active:scale-[0.98] border border-[#1DA1F2]/20 transition-all touch-manipulation"
                         data-testid="button-challenge-twitter"
                       >
-                        <Twitter className="w-4 h-4 text-[#1DA1F2] shrink-0" />
-                        <span className="text-[10px] sm:text-sm font-medium truncate">Challenge on X</span>
+                        <Twitter className="w-5 h-5 text-[#1DA1F2]" />
+                        <span className="text-[9px] sm:text-xs font-medium">X</span>
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="text-xs">Challenge on X</p>
                     </TooltipContent>
                   </Tooltip>
+
+                  {/* WhatsApp */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -4687,36 +5230,176 @@ Ready to earn yours? 🚀`);
                           const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
                           window.open(url, '_blank');
                         }}
-                        className="flex items-center justify-center gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/25 border border-[#25D366]/20 transition-all"
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/25 active:scale-[0.98] border border-[#25D366]/20 transition-all touch-manipulation"
                         data-testid="button-challenge-whatsapp"
                       >
-                        <MessageCircle className="w-4 h-4 text-[#25D366] shrink-0" />
-                        <span className="text-[10px] sm:text-sm font-medium truncate">WhatsApp</span>
+                        <MessageCircle className="w-5 h-5 text-[#25D366]" />
+                        <span className="text-[9px] sm:text-xs font-medium">WhatsApp</span>
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="text-xs">Challenge on WhatsApp</p>
                     </TooltipContent>
                   </Tooltip>
+
+                  {/* Telegram */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
+                          const text = `🔥 I challenge you! I just typed ${langName} code at ${wpm} WPM with ${accuracy}% accuracy! Can you beat me? 💻⚡`;
+                          const url = `https://t.me/share/url?url=${encodeURIComponent('https://typemasterai.com/code-mode')}&text=${encodeURIComponent(text)}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/25 active:scale-[0.98] border border-[#0088cc]/20 transition-all touch-manipulation"
+                        data-testid="button-challenge-telegram"
+                      >
+                        <Send className="w-5 h-5 text-[#0088cc]" />
+                        <span className="text-[9px] sm:text-xs font-medium">Telegram</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Challenge on Telegram</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Facebook */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/code-mode')}&quote=${encodeURIComponent(`🔥 I challenge you! I just typed code at ${wpm} WPM with ${accuracy}% accuracy! Can you beat me? 💻⚡`)}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/25 active:scale-[0.98] border border-[#1877F2]/20 transition-all touch-manipulation"
+                        data-testid="button-challenge-facebook"
+                      >
+                        <Facebook className="w-5 h-5 text-[#1877F2]" />
+                        <span className="text-[9px] sm:text-xs font-medium">Facebook</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Challenge on Facebook</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* LinkedIn */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
+                          const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/code-mode')}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#0A66C2]/10 hover:bg-[#0A66C2]/25 active:scale-[0.98] border border-[#0A66C2]/20 transition-all touch-manipulation"
+                        data-testid="button-challenge-linkedin"
+                      >
+                        <Linkedin className="w-5 h-5 text-[#0A66C2]" />
+                        <span className="text-[9px] sm:text-xs font-medium">LinkedIn</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Share on LinkedIn</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Reddit */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
+                          const title = `🔥 I challenge you! I just typed ${langName} code at ${wpm} WPM with ${accuracy}% accuracy!`;
+                          const url = `https://www.reddit.com/submit?url=${encodeURIComponent('https://typemasterai.com/code-mode')}&title=${encodeURIComponent(title)}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="flex flex-col items-center justify-center gap-1 p-2 sm:p-3 min-h-[56px] rounded-lg sm:rounded-xl bg-[#FF4500]/10 hover:bg-[#FF4500]/25 active:scale-[0.98] border border-[#FF4500]/20 transition-all touch-manipulation"
+                        data-testid="button-challenge-reddit"
+                      >
+                        <svg className="w-5 h-5 text-[#FF4500]" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
+                        </svg>
+                        <span className="text-[9px] sm:text-xs font-medium">Reddit</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Share on Reddit</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
 
-                {'share' in navigator && (
-                  <button
-                    onClick={() => {
-                      const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
-                      navigator.share({
-                        title: '🔥 Code Typing Challenge!',
-                        text: `I challenge you! I just typed ${langName} code at ${wpm} WPM with ${accuracy}% accuracy! Can you beat me? 💻⚡`,
-                        url: 'https://typemasterai.com/code-mode'
-                      }).catch(() => { });
-                    }}
-                    className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-orange-500/10 to-red-500/10 text-foreground text-xs sm:text-base font-medium rounded-lg sm:rounded-xl hover:from-orange-500/20 hover:to-red-500/20 transition-all flex items-center justify-center gap-2 border border-orange-500/20"
-                    data-testid="button-challenge-native"
-                  >
-                    <Share2 className="w-4 h-4 shrink-0" />
-                    <span className="truncate">More Sharing Options</span>
-                  </button>
-                )}
+                {/* Email & Copy Link Row */}
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                  {/* Email */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
+                          const subject = `🔥 Code Typing Challenge - Can you beat ${wpm} WPM?`;
+                          const body = `Hey!\n\nI challenge you to beat my score!\n\nI just typed ${langName} code at ${wpm} WPM with ${accuracy}% accuracy on TypeMaster AI!\n\nThink you can code faster? Prove it! 💻⚡\n\n👉 https://typemasterai.com/code-mode`;
+                          const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="flex items-center justify-center gap-1.5 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-muted/50 hover:bg-muted active:scale-[0.98] border border-border/50 transition-all touch-manipulation"
+                        data-testid="button-challenge-email"
+                      >
+                        <Mail className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-[10px] sm:text-xs font-medium">Email</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Send via Email</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Native Share (if supported) or Copy Link */}
+                  {'share' in navigator ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            const langName = PROGRAMMING_LANGUAGES[language as keyof typeof PROGRAMMING_LANGUAGES]?.name || language;
+                            navigator.share({
+                              title: '🔥 Code Typing Challenge!',
+                              text: `I challenge you! I just typed ${langName} code at ${wpm} WPM with ${accuracy}% accuracy! Can you beat me? 💻⚡`,
+                              url: 'https://typemasterai.com/code-mode'
+                            }).catch(() => { });
+                          }}
+                          className="flex items-center justify-center gap-1.5 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 hover:from-orange-500/20 hover:to-red-500/20 active:scale-[0.98] border border-orange-500/20 transition-all touch-manipulation"
+                          data-testid="button-challenge-native"
+                        >
+                          <Share2 className="w-4 h-4 text-orange-500" />
+                          <span className="text-[10px] sm:text-xs font-medium">More</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">More Sharing Options</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText('https://typemasterai.com/code-mode');
+                            toast({ title: "Link Copied!", description: "Challenge link copied to clipboard" });
+                          }}
+                          className="flex items-center justify-center gap-1.5 p-2 sm:p-3 min-h-[44px] rounded-lg sm:rounded-xl bg-muted/50 hover:bg-muted active:scale-[0.98] border border-border/50 transition-all touch-manipulation"
+                          data-testid="button-challenge-copy-link"
+                        >
+                          <Link2 className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-[10px] sm:text-xs font-medium">Copy Link</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Copy Challenge Link</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               </TabsContent>
             </Tabs>
           </DialogContent>
@@ -4745,6 +5428,8 @@ Ready to earn yours? 🚀`);
                 time={formatTime(elapsedTime)}
                 minimal={true}
                 username={user?.username}
+                isCustomMode={mode === "custom"}
+                verificationId={certificateVerificationId || undefined}
               />
             </div>
           </DialogContent>

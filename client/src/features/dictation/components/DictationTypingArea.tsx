@@ -83,7 +83,17 @@ export function DictationTypingArea({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && e.ctrlKey && !isSpeaking && isReady) {
       e.preventDefault();
-      onSubmit();
+      // Flush any pending debounced text update before submitting
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      // Sync the latest local text to parent before submitting
+      onTypedTextChange(localText);
+      // Use setTimeout to ensure state update is processed before submit
+      setTimeout(() => {
+        onSubmit();
+      }, 0);
     }
   };
 

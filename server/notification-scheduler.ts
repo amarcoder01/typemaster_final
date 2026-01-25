@@ -121,8 +121,11 @@ export class NotificationScheduler {
       const failed = results.filter(r => r.status === 'rejected').length;
 
       console.log(`[Scheduler] Job batch completed: ${succeeded} succeeded, ${failed} failed`);
-    } catch (error) {
-      console.error('[Scheduler] Error processing due jobs:', error);
+    } catch (error: any) {
+      // Suppress quota exceeded errors to avoid log spam
+      if (!error?.message?.includes('compute time quota')) {
+        console.error('[Scheduler] Error processing due jobs:', error);
+      }
     } finally {
       this.isProcessing = false;
     }

@@ -62,9 +62,17 @@ const STATIC_PAGES: SitemapUrl[] = [
   { loc: '/javascript-typing-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: '0.8' },
   { loc: '/python-typing-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: '0.8' },
 
+  // Additional SEO Landing Pages
+  { loc: '/free-online-typing-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.9' },
+  { loc: '/cpm-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
+  { loc: '/typing-speed-requirements', lastmod: new Date().toISOString().split('T')[0], changefreq: 'monthly', priority: '0.8' },
+  { loc: '/typing-accuracy-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
+  { loc: '/professional-typing-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
+  { loc: '/student-typing-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
+
   // Feature pages
-  { loc: '/dictation-mode', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
-  { loc: '/dictation-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
+  { loc: '/dictation-mode', lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: '0.9', images: [{ loc: `${BASE_URL}/opengraph.jpg`, title: 'TypeMasterAI Dictation Typing Test - Listen & Type Practice' }] },
+  { loc: '/dictation-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'daily', priority: '0.9', images: [{ loc: `${BASE_URL}/opengraph.jpg`, title: 'Free Dictation Typing Test - Audio Transcription Practice' }] },
   { loc: '/stress-test', lastmod: new Date().toISOString().split('T')[0], changefreq: 'weekly', priority: '0.8' },
 
   // Leaderboards - frequently updated
@@ -302,6 +310,9 @@ export function generateImagesSitemap(): string {
     { page: '/', image: '/logo-horizontal.svg', title: 'TypeMasterAI Horizontal Logo' },
     { page: '/', image: '/icon-192x192.png', title: 'TypeMasterAI App Icon' },
     { page: '/', image: '/favicon.png', title: 'TypeMasterAI Favicon' },
+    // Dictation Mode Images
+    { page: '/dictation-mode', image: '/opengraph.jpg', title: 'Dictation Typing Test - Listen and Type Practice' },
+    { page: '/dictation-test', image: '/opengraph.jpg', title: 'Free Dictation Typing Test - Audio Transcription Practice' },
   ];
 
   const urlElements = images.map(img => `  <url>

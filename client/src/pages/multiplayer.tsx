@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Zap, Users, Lock, Trophy, Loader2, Info, WifiOff, AlertTriangle, CheckCircle2, Timer, FileText } from "lucide-react";
+import { Zap, Users, Lock, Trophy, Loader2, Info, WifiOff, AlertTriangle, CheckCircle2, Timer, FileText, User } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AuthPrompt } from "@/components/auth-prompt";
@@ -69,12 +69,34 @@ interface Participant {
   isFinished: number;
 }
 
+function generateSecureFallbackId(): string {
+  try {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Final fallback: time + random (best-effort)
+    return `${Date.now()}-${Math.random().toString(36).substring(2)}`;
+  }
+}
+
 function getOrCreateGuestId(): string {
   const GUEST_ID_KEY = "multiplayer_guest_id";
   let guestId = localStorage.getItem(GUEST_ID_KEY);
+  
+  // Upgrade legacy short IDs to avoid collisions
+  if (guestId && guestId.length < 16) {
+    guestId = null;
+  }
 
   if (!guestId) {
-    guestId = Math.random().toString(36).substring(2, 8);
+    // Prefer crypto.randomUUID when available
+    const candidate = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? (crypto as any).randomUUID()
+      : null;
+    guestId = (typeof candidate === 'string' && candidate.length > 0)
+      ? candidate
+      : generateSecureFallbackId();
     localStorage.setItem(GUEST_ID_KEY, guestId);
   }
 
@@ -93,6 +115,46 @@ function formatDuration(seconds: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+// Guest display name validation
+const GUEST_NAME_MIN_LENGTH = 2;
+const GUEST_NAME_MAX_LENGTH = 20;
+
+function sanitizeGuestName(name: string): string {
+  // Trim whitespace
+  let sanitized = name.trim();
+  
+  // Remove potentially harmful characters (allow only alphanumeric, spaces, common symbols)
+  sanitized = sanitized.replace(/[^\w\s\-_.!?]/gi, '');
+  
+  // Collapse multiple spaces into one
+  sanitized = sanitized.replace(/\s+/g, ' ');
+  
+  // Limit length
+  sanitized = sanitized.slice(0, GUEST_NAME_MAX_LENGTH);
+  
+  return sanitized;
+}
+
+function validateGuestName(name: string): { valid: boolean; error?: string } {
+  const sanitized = sanitizeGuestName(name);
+  
+  if (sanitized.length === 0) {
+    return { valid: true }; // Empty is allowed (will use default "Guest")
+  }
+  
+  if (sanitized.length < GUEST_NAME_MIN_LENGTH) {
+    return { valid: false, error: `Name must be at least ${GUEST_NAME_MIN_LENGTH} characters` };
+  }
+  
+  // Check for offensive patterns (basic filter)
+  const offensivePatterns = /\b(admin|moderator|mod|staff|official|system)\b/i;
+  if (offensivePatterns.test(sanitized)) {
+    return { valid: false, error: "This name is reserved" };
+  }
+  
+  return { valid: true };
+}
+
 export default function MultiplayerPage() {
   useSEO(SEO_CONFIGS.multiplayer);
   const { user } = useAuth();
@@ -105,6 +167,11 @@ export default function MultiplayerPage() {
   const [loadingAction, setLoadingAction] = useState<"quickMatch" | "createRoom" | "joinRoom" | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number>(60);
   const quickMatchTriggeredRef = useRef(false);
+  
+  // Guest display name - only used when user is not logged in
+  const [guestDisplayName, setGuestDisplayName] = useState<string>(() => {
+    return localStorage.getItem("multiplayer_guest_name") || "";
+  });
 
   // Auto-trigger quick match if coming from "New Race" button
   useEffect(() => {
@@ -120,6 +187,15 @@ export default function MultiplayerPage() {
     }
   }, [isOnline]);
 
+  // Helper to clear stale race participant data from localStorage
+  function clearStaleRaceData() {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('race_') && key.endsWith('_participant')) {
+        localStorage.removeItem(key);
+      }
+    });
+  }
+
   async function quickMatch() {
     if (!isOnline) {
       toast.error("You're offline. Please check your internet connection.", {
@@ -127,6 +203,9 @@ export default function MultiplayerPage() {
       });
       return;
     }
+
+    // Clear stale race data before creating/joining a new race
+    clearStaleRaceData();
 
     setLoading(true);
     setLoadingAction("quickMatch");
@@ -137,6 +216,7 @@ export default function MultiplayerPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestId,
+          guestDisplayName: !user && guestDisplayName.trim() ? guestDisplayName.trim() : undefined,
           raceType: "timed",
           timeLimitSeconds: selectedDuration,
         }),
@@ -176,6 +256,9 @@ export default function MultiplayerPage() {
       return;
     }
 
+    // Clear stale race data before creating/joining a new race
+    clearStaleRaceData();
+
     setLoading(true);
     setLoadingAction("createRoom");
     try {
@@ -187,6 +270,7 @@ export default function MultiplayerPage() {
           isPrivate: true,
           maxPlayers,
           guestId,
+          guestDisplayName: !user && guestDisplayName.trim() ? guestDisplayName.trim() : undefined,
           timeLimitSeconds: selectedDuration,
           textSource,
         }),
@@ -245,6 +329,9 @@ export default function MultiplayerPage() {
       return;
     }
 
+    // Clear stale race data before creating/joining a new race
+    clearStaleRaceData();
+
     setLoading(true);
     setLoadingAction("joinRoom");
     try {
@@ -252,7 +339,10 @@ export default function MultiplayerPage() {
       const response = await fetch(`/api/races/join/${cleanCode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId }),
+        body: JSON.stringify({ 
+          guestId,
+          guestDisplayName: !user && guestDisplayName.trim() ? guestDisplayName.trim() : undefined,
+        }),
       });
 
       if (response.ok) {
@@ -326,16 +416,16 @@ export default function MultiplayerPage() {
           </div>
 
           <Tabs defaultValue="quick" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6 sm:mb-8 bg-zinc-900/50 border border-white/10 p-1 rounded-xl gap-1">
+            <TabsList className="grid w-full grid-cols-3 mb-6 sm:mb-8 bg-gradient-to-b from-zinc-800/80 to-zinc-900/90 backdrop-blur-sm border border-white/15 shadow-lg shadow-black/20 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl gap-1 sm:gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value="quick"
                     data-testid="tab-quick-match"
-                    className="relative gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap rounded-lg transition-colors data-[state=active]:bg-primary/20 data-[state=active]:text-primary data-[state=active]:ring-1 data-[state=active]:ring-primary/40 data-[state=active]:shadow font-medium after:content-[''] after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary/70 after:opacity-0 data-[state=active]:after:opacity-100"
+                    className="relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 text-[10px] sm:text-sm rounded-lg sm:rounded-xl transition-all duration-200 hover:bg-white/5 data-[state=active]:bg-gradient-to-b data-[state=active]:from-primary/25 data-[state=active]:to-primary/15 data-[state=active]:text-primary data-[state=active]:border data-[state=active]:border-primary/30 data-[state=active]:shadow-md data-[state=active]:shadow-primary/10 font-medium overflow-hidden"
                   >
-                    <Zap className="h-4 w-4 mr-2" />
-                    Quick Match
+                    <Zap className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                    <span className="truncate">Quick Match</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -348,10 +438,10 @@ export default function MultiplayerPage() {
                   <TabsTrigger
                     value="create"
                     data-testid="tab-create-room"
-                    className="relative gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap rounded-lg transition-colors data-[state=active]:bg-primary/20 data-[state=active]:text-primary data-[state=active]:ring-1 data-[state=active]:ring-primary/40 data-[state=active]:shadow font-medium after:content-[''] after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary/70 after:opacity-0 data-[state=active]:after:opacity-100"
+                    className="relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 text-[10px] sm:text-sm rounded-lg sm:rounded-xl transition-all duration-200 hover:bg-white/5 data-[state=active]:bg-gradient-to-b data-[state=active]:from-primary/25 data-[state=active]:to-primary/15 data-[state=active]:text-primary data-[state=active]:border data-[state=active]:border-primary/30 data-[state=active]:shadow-md data-[state=active]:shadow-primary/10 font-medium overflow-hidden"
                   >
-                    <Users className="h-4 w-4 mr-2" />
-                    Create Room
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                    <span className="truncate">Create Room</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -364,10 +454,10 @@ export default function MultiplayerPage() {
                   <TabsTrigger
                     value="join"
                     data-testid="tab-join-room"
-                    className="relative gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap rounded-lg transition-colors data-[state=active]:bg-primary/20 data-[state=active]:text-primary data-[state=active]:ring-1 data-[state=active]:ring-primary/40 data-[state=active]:shadow font-medium after:content-[''] after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary/70 after:opacity-0 data-[state=active]:after:opacity-100"
+                    className="relative flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 text-[10px] sm:text-sm rounded-lg sm:rounded-xl transition-all duration-200 hover:bg-white/5 data-[state=active]:bg-gradient-to-b data-[state=active]:from-primary/25 data-[state=active]:to-primary/15 data-[state=active]:text-primary data-[state=active]:border data-[state=active]:border-primary/30 data-[state=active]:shadow-md data-[state=active]:shadow-primary/10 font-medium overflow-hidden"
                   >
-                    <Lock className="h-4 w-4 mr-2" />
-                    Join Room
+                    <Lock className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                    <span className="truncate">Join Room</span>
                   </TabsTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -397,6 +487,36 @@ export default function MultiplayerPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* Guest Name Input - Only shown when not logged in */}
+                  {!user && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-primary" />
+                        <label className="text-sm font-medium">Your Display Name</label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p className="font-medium">Choose your race name</p>
+                            <p className="text-zinc-400">This is how other players will see you</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Input
+                        value={guestDisplayName}
+                        onChange={(e) => {
+                          const name = sanitizeGuestName(e.target.value);
+                          setGuestDisplayName(name);
+                          localStorage.setItem("multiplayer_guest_name", name);
+                        }}
+                        placeholder="Enter your name..."
+                        maxLength={GUEST_NAME_MAX_LENGTH}
+                        data-testid="input-guest-name"
+                      />
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Timer className="h-4 w-4 text-primary" />
@@ -477,6 +597,36 @@ export default function MultiplayerPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* Guest Name Input - Only shown when not logged in */}
+                  {!user && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <label className="text-sm font-medium">Your Display Name</label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p className="font-medium">Choose your race name</p>
+                            <p className="text-zinc-400">This is how other players will see you</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Input
+                        value={guestDisplayName}
+                        onChange={(e) => {
+                          const name = sanitizeGuestName(e.target.value);
+                          setGuestDisplayName(name);
+                          localStorage.setItem("multiplayer_guest_name", name);
+                        }}
+                        placeholder="Enter your name..."
+                        maxLength={GUEST_NAME_MAX_LENGTH}
+                        data-testid="input-guest-name-create"
+                      />
+                    </div>
+                  )}
+
                   {/* Max Players */}
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
@@ -567,8 +717,7 @@ export default function MultiplayerPage() {
                       <SelectContent>
                         <SelectItem value="general">General Topics (Most Content)</SelectItem>
                         <SelectItem value="quotes">Quotes & Proverbs</SelectItem>
-                        <SelectItem value="programming">Programming Content</SelectItem>
-                        <SelectItem value="technical">Technical Writing</SelectItem>
+                        <SelectItem value="technical">Technical & Programming</SelectItem>
                         <SelectItem value="news">News Articles</SelectItem>
                         <SelectItem value="entertainment">Entertainment & Fun</SelectItem>
                         <SelectItem value="random">Random Mix (All Categories)</SelectItem>
@@ -643,6 +792,36 @@ export default function MultiplayerPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* Guest Name Input - Only shown when not logged in */}
+                  {!user && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <label className="text-sm font-medium">Your Display Name</label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p className="font-medium">Choose your race name</p>
+                            <p className="text-zinc-400">This is how other players will see you</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Input
+                        value={guestDisplayName}
+                        onChange={(e) => {
+                          const name = sanitizeGuestName(e.target.value);
+                          setGuestDisplayName(name);
+                          localStorage.setItem("multiplayer_guest_name", name);
+                        }}
+                        placeholder="Enter your name..."
+                        maxLength={GUEST_NAME_MAX_LENGTH}
+                        data-testid="input-guest-name-join"
+                      />
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <label className="text-sm font-medium">Room Code</label>

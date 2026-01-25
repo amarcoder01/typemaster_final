@@ -5,6 +5,7 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
+import crypto from "node:crypto";
 
 interface LeaderboardClient {
   ws: WebSocket;
@@ -105,7 +106,7 @@ class LeaderboardWebSocketService {
   }
 
   private generateClientId(): string {
-    return `lb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `lb_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
   }
 
   private handleMessage(clientId: string, message: any, client: LeaderboardClient): void {

@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Trophy, Copy, Check, Loader2, Home, RotateCcw, ArrowLeft, WifiOff, RefreshCw, Info, Gauge, Target, User, Users, Share2, Play, Flag, AlertTriangle, Wifi, XCircle, Timer, Sparkles, MessageCircle, Send, TrendingUp, TrendingDown, Award, Eye, Film, Zap, LogOut, Lock, ExternalLink, Twitter, Facebook, Linkedin, Mail } from "lucide-react";
+import { Trophy, Copy, Check, Loader2, Home, RotateCcw, ArrowLeft, WifiOff, RefreshCw, Info, Gauge, Target, User, Users, Share2, Play, Flag, AlertTriangle, Wifi, XCircle, Timer, Sparkles, MessageCircle, Send, TrendingUp, TrendingDown, Award, Eye, Film, Zap, LogOut, Lock, ExternalLink, Twitter, Facebook, Linkedin, Mail, UserPlus, X } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -22,185 +22,18 @@ import { getTypingPerformanceRating } from "@/lib/share-utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AuthPrompt } from "@/components/auth-prompt";
 
-// Error types for better error handling
-type ErrorType = "network" | "race_not_found" | "race_full" | "race_started" | "websocket" | "unknown";
+// Import extracted race components
+import { 
+  RaceErrorDisplay, 
+  RaceLoadingDisplay, 
+  RaceNetworkBanner,
+  RaceChat,
+  type ErrorState, 
+  type ErrorType,
+  type ChatMessage 
+} from "@/components/race";
 
-interface ErrorState {
-  type: ErrorType;
-  message: string;
-  canRetry: boolean;
-  retryAction?: () => void;
-}
-
-// Error display component with retry functionality
-function RaceErrorDisplay({
-  error,
-  onRetry,
-  onGoBack
-}: {
-  error: ErrorState;
-  onRetry?: () => void;
-  onGoBack: () => void;
-}) {
-  const getErrorIcon = () => {
-    switch (error.type) {
-      case "network":
-      case "websocket":
-        return <WifiOff className="h-12 w-12 text-yellow-500" />;
-      case "race_not_found":
-        return <XCircle className="h-12 w-12 text-red-500" />;
-      case "race_full":
-        return <Users className="h-12 w-12 text-orange-500" />;
-      case "race_started":
-        return <Timer className="h-12 w-12 text-orange-500" />;
-      default:
-        return <AlertTriangle className="h-12 w-12 text-red-500" />;
-    }
-  };
-
-  const getErrorTitle = () => {
-    switch (error.type) {
-      case "network": return "Connection Problem";
-      case "websocket": return "Live Connection Lost";
-      case "race_not_found": return "Race Not Found";
-      case "race_full": return "Race is Full";
-      case "race_started": return "Race Already Started";
-      default: return "Something Went Wrong";
-    }
-  };
-
-  return (
-    <TooltipProvider delayDuration={300}>
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-4">
-              <div className="flex justify-center">
-                {getErrorIcon()}
-              </div>
-              <div>
-                <h2 className="text-xl font-bold">{getErrorTitle()}</h2>
-                <p className="text-muted-foreground mt-2">{error.message}</p>
-              </div>
-              <div className="flex flex-col gap-2 pt-4">
-                {error.canRetry && onRetry && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button onClick={onRetry} className="w-full" data-testid="button-retry">
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Try Again
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="font-medium">Retry</p>
-                      <p className="text-zinc-400">Attempt to reconnect or reload the race</p>
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" onClick={onGoBack} className="w-full" data-testid="button-go-back">
-                      <Home className="h-4 w-4 mr-2" />
-                      Back to Multiplayer
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Return to the multiplayer lobby</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </TooltipProvider>
-  );
-}
-
-// Loading component with descriptive state
-function RaceLoadingDisplay({ message, subMessage }: { message: string; subMessage?: string }) {
-  return (
-    <TooltipProvider delayDuration={300}>
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="inline-flex items-center justify-center">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Loading race data from server</p>
-            </TooltipContent>
-          </Tooltip>
-          <div>
-            <p className="text-lg font-medium">{message}</p>
-            {subMessage && (
-              <p className="text-sm text-muted-foreground mt-1">{subMessage}</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </TooltipProvider>
-  );
-}
-
-// Network status banner component
-function NetworkStatusBanner({
-  isConnected,
-  isReconnecting,
-  reconnectAttempt,
-  maxAttempts,
-  onManualRetry
-}: {
-  isConnected: boolean;
-  isReconnecting: boolean;
-  reconnectAttempt: number;
-  maxAttempts: number;
-  onManualRetry: () => void;
-}) {
-  if (isConnected) return null;
-
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Alert variant="destructive" className="mb-4 border-yellow-500/50 bg-yellow-500/10">
-        <WifiOff className="h-4 w-4" />
-        <AlertTitle className="flex items-center gap-2">
-          {isReconnecting ? "Reconnecting..." : "Connection Lost"}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Info className="h-3.5 w-3.5 cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p className="font-medium">WebSocket Disconnected</p>
-              <p className="text-zinc-400">Your live connection to the race server was interrupted. We're trying to reconnect automatically.</p>
-            </TooltipContent>
-          </Tooltip>
-        </AlertTitle>
-        <AlertDescription className="flex items-center justify-between">
-          <span>
-            {isReconnecting
-              ? `Attempt ${reconnectAttempt} of ${maxAttempts}...`
-              : "Your progress is saved. Click retry to reconnect."}
-          </span>
-          {!isReconnecting && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={onManualRetry} data-testid="button-manual-reconnect">
-                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                  Retry
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Manually attempt to reconnect</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </AlertDescription>
-      </Alert>
-    </TooltipProvider>
-  );
-}
+// Types and common components are now imported from @/components/race
 
 interface Race {
   id: number;
@@ -235,16 +68,11 @@ interface Participant {
   } | null;
   ratingChange?: number | null;
   userId?: string | null;
+  // Security: Join token for WebSocket authentication (Phase 1 hardening)
+  joinToken?: string | null;
 }
 
-interface ChatMessage {
-  id: number;
-  username: string;
-  avatarColor: string | null;
-  message: string;
-  isSystem: boolean;
-  createdAt: string;
-}
+// ChatMessage interface is now imported from @/components/race
 
 interface RatingInfo {
   rating: number;
@@ -257,340 +85,7 @@ interface RatingInfo {
   ratingChange?: number;
 }
 
-const MAX_CHAT_LENGTH = 500;
-
-function RaceChat({
-  raceId,
-  participantId,
-  username,
-  avatarColor,
-  sendWsMessage,
-  messages,
-  isEnabled,
-  isCompact = false,
-  wsConnected = true
-}: {
-  raceId: number;
-  participantId: number;
-  username: string;
-  avatarColor: string | null;
-  sendWsMessage: (msg: any) => void;
-  messages: ChatMessage[];
-  isEnabled: boolean;
-  isCompact?: boolean;
-  wsConnected?: boolean;
-}) {
-  const [input, setInput] = useState("");
-  const [sendError, setSendError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    if (value.length <= MAX_CHAT_LENGTH) {
-      setInput(value);
-      if (sendError) setSendError(null);
-    }
-  };
-
-  const sendMessage = () => {
-    const trimmedInput = input.trim();
-    if (!trimmedInput || !isEnabled) return;
-
-    if (!wsConnected) {
-      setSendError("Connection lost");
-      toast.error("Cannot send message", {
-        description: "Connection lost. Reconnecting...",
-        icon: <WifiOff className="h-4 w-4" />
-      });
-      return;
-    }
-
-    if (trimmedInput.length > MAX_CHAT_LENGTH) {
-      setSendError("Message too long");
-      toast.error("Message too long", {
-        description: `Maximum ${MAX_CHAT_LENGTH} characters allowed`,
-        icon: <AlertTriangle className="h-4 w-4" />
-      });
-      return;
-    }
-
-    setSendError(null);
-
-    try {
-      sendWsMessage({
-        type: "chat_message",
-        raceId,
-        participantId,
-        content: trimmedInput,
-      });
-      setInput("");
-    } catch (error) {
-      setSendError("Failed to send");
-      toast.error("Failed to send message", {
-        description: "Please check your connection and try again",
-        icon: <XCircle className="h-4 w-4" />
-      });
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const getDisabledReason = (): string => {
-    if (!wsConnected) return "Reconnecting to server...";
-    if (!isEnabled) return "Chat disabled during active typing";
-    return "";
-  };
-
-  const isInputDisabled = !isEnabled || !wsConnected;
-
-  if (isCompact) {
-    return (
-      <TooltipProvider delayDuration={300}>
-        <div className="border rounded-lg p-1.5 sm:p-2 bg-muted/20">
-          <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-help">
-                  <MessageCircle className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground" />
-                  <span className="text-[10px] sm:text-xs font-medium">Chat</span>
-                  {!wsConnected && <WifiOff className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-yellow-500" />}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs">
-                <p className="font-medium">Race Chat</p>
-                <p className="text-zinc-400">
-                  {wsConnected
-                    ? "Chat with other racers. Press Enter to send."
-                    : "Reconnecting to chat server..."}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <div
-            ref={scrollRef}
-            className="h-16 sm:h-20 overflow-y-auto mb-1 space-y-0.5 sm:space-y-1"
-          >
-            {messages.length === 0 ? (
-              <p className="text-[10px] sm:text-xs text-muted-foreground text-center py-0.5 sm:py-1">
-                No messages
-              </p>
-            ) : (
-              messages.slice(-10).map((msg, idx) => (
-                <Tooltip key={msg.id || idx}>
-                  <TooltipTrigger asChild>
-                    <div className={`text-[10px] sm:text-xs cursor-default ${msg.isSystem ? 'text-muted-foreground italic' : ''}`}>
-                      {!msg.isSystem && (
-                        <span className="font-medium text-primary text-[10px] sm:text-xs">
-                          {msg.username}:
-                        </span>
-                      )}{" "}
-                      <span>{msg.message}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">
-                    <p className="text-xs">{msg.isSystem ? "System message" : `From ${msg.username}`}</p>
-                  </TooltipContent>
-                </Tooltip>
-              ))
-            )}
-          </div>
-          <div className="flex gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex-1">
-                  <Input
-                    value={input}
-                    onChange={handleInputChange}
-                    onKeyDown={handleKeyDown}
-                    placeholder={isInputDisabled ? getDisabledReason() || "Disabled" : "Chat..."}
-                    disabled={isInputDisabled}
-                    maxLength={MAX_CHAT_LENGTH}
-                    className={`text-[10px] sm:text-xs h-5 sm:h-6 ${sendError ? 'border-red-500' : ''}`}
-                    data-testid="input-chat-compact"
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>{isInputDisabled ? getDisabledReason() : "Type your message here"}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  onClick={sendMessage}
-                  disabled={isInputDisabled || !input.trim()}
-                  className="h-5 sm:h-6 px-1.5 sm:px-2"
-                  data-testid="button-send-chat-compact"
-                >
-                  <Send className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Send message (Enter)</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-      </TooltipProvider>
-    );
-  }
-
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Card className="h-64">
-        <CardHeader className="py-2 px-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-help">
-                  <MessageCircle className="h-4 w-4" />
-                  Race Chat
-                  {!wsConnected && <WifiOff className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-yellow-500" />}
-                  <Info className="h-3 w-3 text-muted-foreground" />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs">
-                <p className="font-medium">Race Chat</p>
-                <p className="text-zinc-400">
-                  Chat with other participants before and after the race.
-                  Chat is disabled during active typing to prevent distraction.
-                </p>
-                <p className="text-zinc-400 mt-1">
-                  <span className="text-primary">Tip:</span> Press Enter to send, max {MAX_CHAT_LENGTH} characters.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-2 h-[calc(100%-4rem)]">
-          <div className="flex flex-col h-full">
-            <div
-              ref={scrollRef}
-              className="flex-1 overflow-y-auto pr-2 mb-2"
-            >
-              <div className="space-y-2">
-                {messages.length === 0 ? (
-                  <div className="text-center py-4">
-                    <MessageCircle className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">
-                      No messages yet. Say hi!
-                    </p>
-                  </div>
-                ) : (
-                  messages.map((msg, idx) => (
-                    <Tooltip key={msg.id || idx}>
-                      <TooltipTrigger asChild>
-                        <div className={`text-xs cursor-default hover:bg-muted/30 rounded px-1 py-0.5 transition-colors ${msg.isSystem ? 'text-muted-foreground italic' : ''}`}>
-                          {!msg.isSystem && (
-                            <span className="font-medium text-primary text-[10px] sm:text-xs">
-                              {msg.username}:
-                            </span>
-                          )}{" "}
-                          <span>{msg.message}</span>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="left">
-                        <p className="text-xs">
-                          {msg.isSystem
-                            ? "System notification"
-                            : `Message from ${msg.username}`}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))
-                )}
-              </div>
-            </div>
-            <div className="space-y-1">
-              {sendError && (
-                <div className="flex items-center gap-1 text-xs text-red-500">
-                  <AlertTriangle className="h-3 w-3" />
-                  <span>{sendError}</span>
-                </div>
-              )}
-              <div className="flex gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex-1">
-                      <Input
-                        value={input}
-                        onChange={handleInputChange}
-                        onKeyDown={handleKeyDown}
-                        placeholder={isInputDisabled ? getDisabledReason() || "Chat disabled during race" : "Type a message..."}
-                        disabled={isInputDisabled}
-                        maxLength={MAX_CHAT_LENGTH}
-                        className={`text-xs h-7 ${sendError ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
-                        data-testid="input-chat"
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p className="font-medium">
-                      {isInputDisabled ? getDisabledReason() : "Message Input"}
-                    </p>
-                    {!isInputDisabled && (
-                      <p className="text-zinc-400">Press Enter to send</p>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      onClick={sendMessage}
-                      disabled={isInputDisabled || !input.trim()}
-                      className="h-7 px-2"
-                      data-testid="button-send-chat"
-                    >
-                      <Send className="h-3 w-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p className="font-medium">Send Message</p>
-                    <p className="text-zinc-400">Or press Enter</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="flex items-center justify-between">
-                {input.length > MAX_CHAT_LENGTH * 0.8 ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className={`text-xs flex items-center gap-1 ${input.length >= MAX_CHAT_LENGTH ? 'text-red-500' : 'text-muted-foreground'}`}>
-                        {input.length >= MAX_CHAT_LENGTH && <AlertTriangle className="h-3 w-3" />}
-                        {input.length}/{MAX_CHAT_LENGTH}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{input.length >= MAX_CHAT_LENGTH ? "Character limit reached!" : `${MAX_CHAT_LENGTH - input.length} characters remaining`}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : <div />}
-                {!wsConnected && (
-                  <div className="text-xs text-yellow-500 flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Reconnecting...
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </TooltipProvider>
-  );
-}
+// RaceChat is now imported from @/components/race
 
 const TIER_DESCRIPTIONS: Record<string, string> = {
   bronze: "Starting tier. Keep practicing to climb!",
@@ -860,23 +355,36 @@ export default function RacePage() {
   const currentIndexRef = useRef(0);
   const errorsRef = useRef(0);
   const isComposingRef = useRef(false);
+  const keystrokesRef = useRef<Array<{ key: string; timestamp: number; position: number; isTrusted?: boolean }>>([]);
+  const keystrokesSubmittedRef = useRef(false);
+  const lastKeystrokeTimestampRef = useRef(0);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const maxReconnectAttempts = 5;
   const pendingMessagesRef = useRef<string[]>([]);
+  const lastProgressSentRef = useRef(0);
+  const pendingProgressRef = useRef<{ progress: number; errors: number; wpm: number; accuracy: number } | null>(null);
+  const progressFlushTimerRef = useRef<NodeJS.Timeout | null>(null);
   const seenParticipantJoinsRef = useRef<Set<number>>(new Set());
   const hasJoinedRef = useRef(false);
   const lastJoinedRaceIdRef = useRef<number | null>(null);
   const [hasJoinedRace, setHasJoinedRace] = useState(false); // State for UI reactivity
   const extensionRequestedRef = useRef(false);
-  const extensionThreshold = 0.85;
+  const extensionThreshold = 0.75; // Request extension earlier to ensure content is available
   const timedFinishSentRef = useRef(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
   const [showFinishBanner, setShowFinishBanner] = useState(false);
   const finishBannerDismissedRef = useRef(false);
+  const raceFinishedReceivedRef = useRef(false); // Track if we received race_finished via WebSocket
+  const [isRefreshing, setIsRefreshing] = useState(false); // Track if we're refreshing participant list
   const [isStarting, setIsStarting] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Phase 7: Multi-tab detection
+  const [isMultiTabBlocked, setIsMultiTabBlocked] = useState(false);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   const [transitionMessage, setTransitionMessage] = useState("");
   const [finishBannerData, setFinishBannerData] = useState<{
     position: number | null;
@@ -899,6 +407,7 @@ export default function RacePage() {
   const [showCertificate, setShowCertificate] = useState(false);
   const [certificateImageCopied, setCertificateImageCopied] = useState(false);
   const [isSharingCertificate, setIsSharingCertificate] = useState(false);
+  const [certificateVerificationId, setCertificateVerificationId] = useState<string | null>(null);
   const [lastResultSnapshot, setLastResultSnapshot] = useState<{
     wpm: number;
     accuracy: number;
@@ -909,6 +418,12 @@ export default function RacePage() {
     errors: number;
     duration: number;
   } | null>(null);
+  
+  // Pending rejoin requests (for host to approve/reject kicked players)
+  const [pendingRejoinRequests, setPendingRejoinRequests] = useState<Array<{
+    participantId: number;
+    username: string;
+  }>>([]);
 
   useEffect(() => {
     raceRef.current = race;
@@ -931,6 +446,7 @@ export default function RacePage() {
 
     // Reset all state for new race
     finishBannerDismissedRef.current = false;
+    raceFinishedReceivedRef.current = false;
     setShowFinishBanner(false);
     setFinishBannerData(null);
     setRematchInfo(null);
@@ -950,9 +466,11 @@ export default function RacePage() {
     setChatMessages([]);
     setRatingInfo(null);
     setLastResultSnapshot(null);
+    setCertificateVerificationId(null);
     setReadyStates(new Map());
     setIsRoomLocked(false);
     setIsReady(false);
+    setPendingRejoinRequests([]);
     setHostParticipantId(null);
     setParticipants([]);
     setLiveWpm(0);
@@ -960,6 +478,9 @@ export default function RacePage() {
     setElapsedTime(0);
     setTimeRemaining(null);
     setStartTime(null);
+    keystrokesRef.current = [];
+    keystrokesSubmittedRef.current = false;
+    lastKeystrokeTimestampRef.current = 0;
     extensionRequestedRef.current = false;
     seenParticipantJoinsRef.current = new Set();
 
@@ -969,11 +490,24 @@ export default function RacePage() {
     if (savedParticipant) {
       try {
         const participant = JSON.parse(savedParticipant);
-        setMyParticipant(participant);
-        console.log(`[Race] Loaded participant from localStorage:`, participant);
+        
+        // Validate the participant belongs to THIS race
+        // The roomCodeOrId could be a numeric race ID or a room code
+        const raceIdFromUrl = /^\d+$/.test(roomCodeOrId) ? parseInt(roomCodeOrId) : null;
+        
+        if (raceIdFromUrl && participant.raceId && participant.raceId !== raceIdFromUrl) {
+          // Stale participant from different race - clear it
+          console.log(`[Race] Stale participant from race ${participant.raceId} (expected ${raceIdFromUrl}) - clearing`);
+          localStorage.removeItem(`race_${roomCodeOrId}_participant`);
+          setMyParticipant(null);
+        } else {
+          setMyParticipant(participant);
+          console.log(`[Race] Loaded participant from localStorage:`, participant);
+        }
       } catch (e) {
         console.error("[Race] Failed to parse saved participant:", e);
         localStorage.removeItem(`race_${roomCodeOrId}_participant`);
+        setMyParticipant(null);
       }
     } else {
       // Reset participant if no saved data
@@ -981,15 +515,127 @@ export default function RacePage() {
       console.log(`[Race] No saved participant found for race ${roomCodeOrId}`);
     }
 
+    // Phase 7: Multi-tab detection using BroadcastChannel
+    try {
+      const channelName = `race-session-${roomCodeOrId}`;
+      const channel = new BroadcastChannel(channelName);
+      broadcastChannelRef.current = channel;
+      
+      // Announce this tab
+      channel.postMessage({
+        type: 'TAB_OPEN',
+        tabId: tabIdRef.current,
+        timestamp: Date.now(),
+      });
+      
+      // Listen for other tabs
+      channel.onmessage = (event) => {
+        if (event.data.tabId === tabIdRef.current) return; // Ignore own messages
+        
+        switch (event.data.type) {
+          case 'TAB_OPEN':
+            // Another tab opened this race - let them know we're here
+            channel.postMessage({
+              type: 'TAB_EXISTS',
+              tabId: tabIdRef.current,
+              timestamp: Date.now(),
+            });
+            break;
+            
+          case 'TAB_EXISTS':
+            // Another tab is already open - warn user
+            console.warn(`[Race Multi-tab] Another tab detected for race ${roomCodeOrId}`);
+            toast.warning("Race open in another tab", {
+              description: "This race is already open in another browser tab. Some features may not work correctly.",
+              duration: 5000,
+            });
+            break;
+            
+          case 'TAB_CLOSE':
+            // Other tab closed - we can proceed normally
+            console.log(`[Race Multi-tab] Other tab closed for race ${roomCodeOrId}`);
+            break;
+        }
+      };
+    } catch (e) {
+      // BroadcastChannel not supported (older browsers) - skip multi-tab detection
+      console.warn("[Race Multi-tab] BroadcastChannel not supported:", e);
+    }
+
     fetchRaceData();
     connectWebSocket();
 
     return () => {
+      // Phase 7: Notify other tabs we're closing
+      if (broadcastChannelRef.current) {
+        try {
+          broadcastChannelRef.current.postMessage({
+            type: 'TAB_CLOSE',
+            tabId: tabIdRef.current,
+            timestamp: Date.now(),
+          });
+          broadcastChannelRef.current.close();
+          broadcastChannelRef.current = null;
+        } catch (e) {
+          console.warn("[Race Multi-tab] Failed to close BroadcastChannel:", e);
+        }
+      }
+      
+      // Send leave message before closing WebSocket
+      if (ws && ws.readyState === WebSocket.OPEN && myParticipantRef.current && raceRef.current) {
+        try {
+          ws.send(JSON.stringify({
+            type: "leave",
+            raceId: raceRef.current.id,
+            participantId: myParticipantRef.current.id,
+            isRacing: false,
+            progress: currentIndexRef.current,
+            wpm: 0,
+            accuracy: 100
+          }));
+        } catch (e) {
+          console.error("[Race] Failed to send leave message:", e);
+        }
+      }
       if (ws) {
         ws.close();
       }
     };
   }, [params?.id]);
+
+  // Handle page unload/navigation - use sendBeacon for reliable delivery
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (myParticipantRef.current && raceRef.current) {
+        // Use sendBeacon for reliable delivery during unload
+        const leaveData = JSON.stringify({
+          raceId: raceRef.current.id,
+          participantId: myParticipantRef.current.id,
+          joinToken: myParticipantRef.current.joinToken,
+          isRacing: false,
+          progress: currentIndexRef.current || 0,
+          errors: errorsRef.current || 0,
+          wpm: 0,
+          accuracy: 100
+        });
+        const blob = new Blob([leaveData], { type: 'application/json' });
+        navigator.sendBeacon('/api/races/leave', blob);
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Periodic sync in waiting room - refresh participants every 15 seconds
+  useEffect(() => {
+    if (race?.status === "waiting" && !isRefreshing) {
+      const interval = setInterval(() => {
+        fetchRaceData();
+      }, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [race?.status, isRefreshing]);
 
   useEffect(() => {
     if (ws && myParticipant && race && ws.readyState === WebSocket.OPEN) {
@@ -1015,6 +661,8 @@ export default function RacePage() {
         raceId: race.id,
         participantId: myParticipant.id,
         username: myParticipant.username,
+        // Security: Include join token for cryptographic authentication (Phase 1 hardening)
+        joinToken: myParticipant.joinToken,
       });
     }
   }, [ws, myParticipant, race]);
@@ -1048,7 +696,9 @@ export default function RacePage() {
         setTimeRemaining(remaining);
 
         // Handle time running out - only send once
-        if (remaining <= 0 && myParticipant && !timedFinishSentRef.current) {
+        // Use ref to avoid stale closure (myParticipant removed from dependencies)
+        const currentParticipant = myParticipantRef.current;
+        if (remaining <= 0 && currentParticipant && !timedFinishSentRef.current) {
           timedFinishSentRef.current = true;
 
           console.log(`[Race Timer] Time expired! Progress: ${idx}, WPM: ${wpm}`);
@@ -1057,18 +707,25 @@ export default function RacePage() {
           sendWsMessage({
             type: "timed_finish",
             raceId: race.id,
-            participantId: myParticipant.id,
+            participantId: currentParticipant.id,
             progress: idx,
             wpm: wpm,
             accuracy: accuracy,
             errors: errs
           });
 
+          submitKeystrokes(wpm);
+
           // Show toast notification
           toast.info("Time's up!", {
             description: `You typed ${idx} characters at ${wpm} WPM`,
             duration: 3000
           });
+
+          // Blur the input immediately to stop keyboard events and allow browser to paint
+          if (hiddenInputRef.current) {
+            hiddenInputRef.current.blur();
+          }
 
           // STOP racing immediately
           setIsRacing(false);
@@ -1118,7 +775,7 @@ export default function RacePage() {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [isRacing, startTime, race?.raceType, race?.timeLimitSeconds, race?.id, myParticipant]);
+  }, [isRacing, startTime, race?.raceType, race?.timeLimitSeconds, race?.id]);
 
   useEffect(() => {
     if (caretRef.current && textContainerRef.current) {
@@ -1129,12 +786,17 @@ export default function RacePage() {
 
       const caretRelativeTop = caretRect.top - containerRect.top + container.scrollTop;
       const visibleTop = container.scrollTop;
-      const visibleBottom = visibleTop + container.clientHeight;
 
-      if (caretRelativeTop < visibleTop + 50) {
-        container.scrollTo({ top: caretRelativeTop - 50, behavior: 'smooth' });
-      } else if (caretRelativeTop > visibleBottom - 50) {
-        container.scrollTo({ top: caretRelativeTop - container.clientHeight + 50, behavior: 'smooth' });
+      // Scroll to keep caret at ~40% from top of container (showing 60% upcoming content)
+      const targetPosition = container.clientHeight * 0.4;
+      
+      // Scroll up if caret is above the target zone
+      if (caretRelativeTop < visibleTop + 30) {
+        container.scrollTo({ top: Math.max(0, caretRelativeTop - targetPosition), behavior: 'smooth' });
+      } 
+      // Scroll down if caret is below the target zone (more aggressive scrolling)
+      else if (caretRelativeTop > visibleTop + targetPosition + 30) {
+        container.scrollTo({ top: caretRelativeTop - targetPosition, behavior: 'smooth' });
       }
     }
   }, [currentIndex]);
@@ -1181,11 +843,12 @@ export default function RacePage() {
 
     if (value.length === 0) return;
 
-    processInput(value);
+    const isTrusted = (e.nativeEvent as any)?.isTrusted;
+    processInput(value, typeof isTrusted === 'boolean' ? isTrusted : undefined);
     input.value = '';
   }
 
-  function processInput(value: string) {
+  function processInput(value: string, isTrusted?: boolean) {
     if (!race) return;
 
     // Block processing if timed race has expired
@@ -1195,6 +858,9 @@ export default function RacePage() {
     let localErrors = errorsRef.current;
     const newCharStates = [...charStates];
 
+    const MAX_KEYSTROKES_BUFFER = 3000;
+    const baseTimestamp = Date.now();
+
     for (let i = 0; i < value.length; i++) {
       if (localIndex >= race.paragraphContent.length) {
         break;
@@ -1202,6 +868,17 @@ export default function RacePage() {
 
       const typedChar = value[i];
       const expectedChar = race.paragraphContent[localIndex];
+
+      if (value.length === 1 && keystrokesRef.current.length < MAX_KEYSTROKES_BUFFER) {
+        const ts = Math.max(baseTimestamp, lastKeystrokeTimestampRef.current + 1);
+        lastKeystrokeTimestampRef.current = ts;
+        keystrokesRef.current.push({
+          key: typedChar,
+          timestamp: ts,
+          position: localIndex,
+          isTrusted,
+        });
+      }
 
       if (typedChar === expectedChar) {
         newCharStates[localIndex] = 'correct';
@@ -1219,6 +896,26 @@ export default function RacePage() {
     setErrors(localErrors);
     setCharStates(newCharStates);
     updateProgress(localIndex, localErrors);
+  }
+
+  function submitKeystrokes(clientWpm: number) {
+    if (keystrokesSubmittedRef.current) return;
+
+    const currentRace = raceRef.current;
+    const currentParticipant = myParticipantRef.current;
+    if (!currentRace || !currentParticipant) return;
+
+    const keystrokes = keystrokesRef.current;
+    if (!Array.isArray(keystrokes) || keystrokes.length === 0) return;
+
+    keystrokesSubmittedRef.current = true;
+    sendWsMessage({
+      type: "submit_keystrokes",
+      raceId: currentRace.id,
+      participantId: currentParticipant.id,
+      keystrokes: keystrokes.slice(0, 3000),
+      clientWpm: clientWpm || 0,
+    });
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -1255,6 +952,10 @@ export default function RacePage() {
   useEffect(() => {
     // Don't show banner again if user already dismissed it
     if (finishBannerDismissedRef.current) return;
+    
+    // Skip if we already received race_finished via WebSocket (avoids showing incorrect placement)
+    // This effect is only for reconnect/refresh scenarios where race was already finished
+    if (raceFinishedReceivedRef.current) return;
 
     if (race?.status === "finished" && !showFinishBanner) {
       console.log("[Race Debug] Detected finished race from API/state");
@@ -1316,6 +1017,7 @@ export default function RacePage() {
 
     const progress = currentIndex / race.paragraphContent.length;
 
+    // Request extension when approaching end of content
     if (progress >= extensionThreshold && !extensionRequestedRef.current) {
       extensionRequestedRef.current = true;
       sendWsMessage({
@@ -1325,14 +1027,31 @@ export default function RacePage() {
       });
     }
 
+    // Handle reaching end of paragraph
     if (currentIndex >= race.paragraphContent.length) {
-      finishRace();
+      // For timed races with time remaining, request extension instead of finishing
+      if (race.raceType === "timed" && timeRemaining && timeRemaining > 0) {
+        // Request more content if not already requested
+        if (!extensionRequestedRef.current) {
+          extensionRequestedRef.current = true;
+          sendWsMessage({
+            type: "extend_paragraph",
+            raceId: race.id,
+            participantId: myParticipant.id,
+          });
+        }
+        // Don't finish - wait for extension or timer expiry
+      } else {
+        // For non-timed races or when time is up, finish normally
+        finishRace();
+      }
     }
-  }, [currentIndex, race, myParticipant]);
+  }, [currentIndex, race, myParticipant, timeRemaining]);
 
   async function fetchRaceData() {
     setLoadingMessage("Loading race...");
     setErrorState(null);
+    setIsRefreshing(true);
 
     try {
       const response = await fetch(`/api/races/${params?.id}`);
@@ -1350,7 +1069,10 @@ export default function RacePage() {
           // Update existing participant data
           const updatedParticipant = data.participants.find((p: Participant) => p.id === currentMyParticipant.id);
           if (updatedParticipant) {
-            setMyParticipant(updatedParticipant);
+            setMyParticipant({
+              ...updatedParticipant,
+              joinToken: currentMyParticipant.joinToken ?? updatedParticipant.joinToken,
+            });
           }
         } else if (user) {
           // If no participant set but user is logged in, try to find their participant
@@ -1409,6 +1131,8 @@ export default function RacePage() {
           canRetry: true,
         });
       }
+    } finally {
+      setIsRefreshing(false);
     }
   }
 
@@ -1525,6 +1249,9 @@ export default function RacePage() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      if (progressFlushTimerRef.current) {
+        clearTimeout(progressFlushTimerRef.current);
+      }
     };
   }, []);
 
@@ -1546,7 +1273,10 @@ export default function RacePage() {
         // Handle joining a race that's already in progress
         if (message.race.status === "racing") {
           setIsRacing(true);
-          setStartTime(message.race.startedAt ? new Date(message.race.startedAt).getTime() : Date.now());
+          // Phase 3: Use server's startedAt for consistent timing across clients
+          // This ensures late joiners see the correct elapsed time
+          const serverStartTime = message.race.startedAt ? new Date(message.race.startedAt).getTime() : Date.now();
+          setStartTime(serverStartTime);
           setCurrentIndex(0);
           setErrors(0);
           currentIndexRef.current = 0;
@@ -1606,7 +1336,20 @@ export default function RacePage() {
       case "race_start":
         setCountdown(null);
         setIsRacing(true);
-        setStartTime(Date.now());
+        // Phase 3: Use server timestamp with clock drift compensation
+        // This ensures consistent timing across all clients
+        const serverTimestamp = message.serverTimestamp || Date.now();
+        const clientNow = Date.now();
+        const clockDrift = clientNow - serverTimestamp;
+        // Store clock drift for future time calculations
+        if (Math.abs(clockDrift) > 5000) {
+          console.warn(`[Race Timer] Large clock drift detected: ${clockDrift}ms`);
+        }
+        // Use server timestamp as authoritative start time
+        setStartTime(serverTimestamp);
+        keystrokesRef.current = [];
+        keystrokesSubmittedRef.current = false;
+        lastKeystrokeTimestampRef.current = 0;
         setCurrentIndex(0);
         setErrors(0);
         currentIndexRef.current = 0;
@@ -1648,6 +1391,8 @@ export default function RacePage() {
         ));
         break;
       case "race_finished":
+        // Mark that we've received final results via WebSocket
+        raceFinishedReceivedRef.current = true;
         setIsRacing(false);
         setParticipants(message.results);
         if (raceRef.current) {
@@ -1691,6 +1436,15 @@ export default function RacePage() {
 
         setShowFinishBanner(true);
 
+        // Extract certificate verification ID from the race_finished message
+        if (message.certificates && currentParticipant?.id) {
+          const myVerificationId = message.certificates[currentParticipant.id];
+          if (myVerificationId) {
+            setCertificateVerificationId(myVerificationId);
+            console.log(`[Race Certificate] Received verification ID: ${myVerificationId}`);
+          }
+        }
+
         if (user) {
           fetch("/api/ratings/me")
             .then(res => res.json())
@@ -1725,15 +1479,11 @@ export default function RacePage() {
         }
         break;
       case "participant_disconnected":
-        // Mark participant as disconnected and show notification
-        setParticipants(prev => prev.map(p =>
-          p.id === message.participantId
-            ? { ...p, isDisconnected: true }
-            : p
-        ));
+        // Remove participant from list and show notification
+        setParticipants(prev => prev.filter(p => p.id !== message.participantId));
         if (message.participantId !== myParticipantRef.current?.id && message.username) {
           toast.warning(`${message.username} disconnected`, {
-            description: message.reason === "timeout" ? "Connection timed out" : "They may reconnect...",
+            description: message.reason === "timeout" ? "Connection timed out" : "Left the race",
             duration: 3000
           });
           // Add system message to chat
@@ -1832,6 +1582,27 @@ export default function RacePage() {
           createdAt: chatData.createdAt || new Date().toISOString(),
         }]);
         break;
+      case "chat_history":
+        // Restore chat history on reconnect
+        if (message.messages && Array.isArray(message.messages)) {
+          const historyMessages = message.messages.map((msg: any) => ({
+            id: msg.id || Date.now(),
+            username: msg.username,
+            avatarColor: msg.avatarColor,
+            message: msg.content || msg.message,
+            isSystem: msg.isSystem || false,
+            createdAt: msg.createdAt || new Date().toISOString(),
+          }));
+          // Merge with existing messages, avoiding duplicates
+          setChatMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const newMessages = historyMessages.filter((m: any) => !existingIds.has(m.id));
+            return [...prev, ...newMessages].sort((a, b) => 
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+          });
+        }
+        break;
       case "rating_update":
         if (message.userId === user?.id) {
           setRatingInfo({
@@ -1885,6 +1656,60 @@ export default function RacePage() {
         toast.error(message.message || "You have been kicked from the room", { duration: 5000 });
         setLocation("/multiplayer");
         break;
+      case "rejoin_request":
+        // Host receives a rejoin request from a kicked player
+        setPendingRejoinRequests(prev => {
+          // Avoid duplicates
+          if (prev.some(r => r.participantId === message.participantId)) {
+            return prev;
+          }
+          return [...prev, { participantId: message.participantId, username: message.username }];
+        });
+        toast.info(message.message || `${message.username} is requesting to rejoin`, {
+          duration: 5000,
+          action: {
+            label: "View",
+            onClick: () => {} // UI will show pending requests
+          }
+        });
+        break;
+      case "rejoin_request_pending":
+        // Kicked player's request is pending host approval
+        toast.info(message.message || "Rejoin request sent. Waiting for host approval...", { duration: 5000 });
+        break;
+      case "rejoin_approved":
+        // Host approved our rejoin request - reconnect
+        toast.success(message.message || "Rejoin approved! Reconnecting...", { duration: 3000 });
+        // Reload the page to rejoin properly
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+        break;
+      case "rejoin_rejected":
+        // Host rejected our rejoin request
+        toast.error(message.message || "Host rejected your rejoin request", { duration: 5000 });
+        setLocation("/multiplayer");
+        break;
+      case "rejoin_decision_confirmed":
+        // Host's decision was processed - remove from pending list
+        setPendingRejoinRequests(prev => prev.filter(r => r.participantId !== message.targetParticipantId));
+        if (message.approved) {
+          toast.success(message.message || `Player allowed to rejoin`, { duration: 3000 });
+        } else {
+          toast.info(message.message || `Rejoin request rejected`, { duration: 3000 });
+        }
+        break;
+      case "player_rejoin_allowed":
+        // Broadcast that a player was allowed to rejoin
+        setChatMessages(prev => [...prev, {
+          id: Date.now(),
+          username: "System",
+          avatarColor: null,
+          message: message.message || `${message.username} has been allowed to rejoin`,
+          isSystem: true,
+          createdAt: new Date().toISOString(),
+        }]);
+        break;
       case "room_lock_changed":
         setIsRoomLocked(message.isLocked);
         toast.info(message.isLocked ? "Room is now locked" : "Room is now unlocked", { duration: 2000 });
@@ -1907,11 +1732,39 @@ export default function RacePage() {
         toast.success(`New race created! Joining...`, {
           duration: 2000,
         });
+        
+        // Clear old race participant data from localStorage before joining new race
+        if (race?.id && race.id !== message.newRaceId) {
+          localStorage.removeItem(`race_${race.id}_participant`);
+        }
+        
         // Auto-redirect to the new race
         setTimeout(() => {
           setLocation(`/race/${message.newRaceId}`);
         }, 1000);
         break;
+      case "race_certificates":
+        // Handle server-generated certificate verification IDs
+        if (message.certificates && myParticipantRef.current?.id) {
+          const myVerificationId = message.certificates[myParticipantRef.current.id];
+          if (myVerificationId) {
+            setCertificateVerificationId(myVerificationId);
+            console.log(`[Race Certificate] Received verification ID: ${myVerificationId}`);
+          }
+        }
+        break;
+      case "connection_superseded":
+        // Phase 7: Server detected duplicate connection from same identity
+        console.warn("[Race Multi-tab] Connection superseded by another session");
+        setIsMultiTabBlocked(true);
+        toast.error("Session taken over", {
+          description: message.message || "Another session connected with your account",
+          duration: 5000,
+        });
+        // Don't try to reconnect - the other tab is authoritative
+        reconnectAttempts.current = maxReconnectAttempts; // Prevent auto-reconnect
+        break;
+        
       case "error":
         // Handle server-side errors with typed error codes
         switch (message.code) {
@@ -2080,20 +1933,42 @@ export default function RacePage() {
     const wpm = calculateWPM(correctChars, elapsedSeconds);
     const accuracy = calculateAccuracy(correctChars, progress);
 
-    sendWsMessage({
-      type: "progress",
-      participantId: myParticipant.id,
-      progress,
-      wpm: wpm || 0,
-      accuracy,
-      errors: errorCount,
-    });
+    const now = Date.now();
+    const flush = () => {
+      const pending = pendingProgressRef.current;
+      if (!pending) return;
+      pendingProgressRef.current = null;
+      lastProgressSentRef.current = Date.now();
+      sendWsMessage({
+        type: "progress",
+        participantId: myParticipant.id,
+        progress: pending.progress,
+        wpm: pending.wpm,
+        accuracy: pending.accuracy,
+        errors: pending.errors,
+      });
+    };
+
+    if (now - lastProgressSentRef.current < 100) {
+      pendingProgressRef.current = { progress, errors: errorCount, wpm: wpm || 0, accuracy };
+      if (!progressFlushTimerRef.current) {
+        progressFlushTimerRef.current = setTimeout(() => {
+          progressFlushTimerRef.current = null;
+          flush();
+        }, 100);
+      }
+    } else {
+      pendingProgressRef.current = { progress, errors: errorCount, wpm: wpm || 0, accuracy };
+      flush();
+    }
 
     setMyParticipant(prev => prev ? { ...prev, progress, wpm: wpm || 0, accuracy, errors: errorCount } : null);
   }
 
   function finishRace() {
     if (!myParticipant) return;
+
+    submitKeystrokes(liveWpm);
 
     setIsRacing(false);
     sendWsMessage({
@@ -2363,6 +2238,24 @@ export default function RacePage() {
                         <p className="text-zinc-400">Share this code with friends to let them join</p>
                       </TooltipContent>
                     </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => fetchRaceData()}
+                          disabled={isRefreshing}
+                          data-testid="button-refresh-participants"
+                          className="h-10 w-10"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p className="font-medium">Refresh</p>
+                        <p className="text-zinc-400">Sync participant list with server</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
 
@@ -2372,24 +2265,20 @@ export default function RacePage() {
                     <Timer className="h-4 w-4" />
                     <span>{race.timeLimitSeconds ? `${race.timeLimitSeconds}s race` : 'Untimed'}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Users className="h-4 w-4" />
-                    <span>{displayMaxPlayers} players max</span>
-                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <h3 className="text-sm font-medium">
-                      Players ({participants.length}/{displayMaxPlayers})
+                      Players ({participants.length})
                     </h3>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        <p>{Math.max(0, displayMaxPlayers - participants.length)} slot{Math.max(0, displayMaxPlayers - participants.length) !== 1 ? 's' : ''} available</p>
+                        <p>{participants.length} {participants.length === 1 ? 'player' : 'players'} in the race</p>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -2546,6 +2435,61 @@ export default function RacePage() {
                   </div>
                 )}
 
+                {/* Pending Rejoin Requests - only visible to host */}
+                {myParticipant?.id === hostParticipantId && pendingRejoinRequests.length > 0 && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-3">
+                    <div className="flex items-center gap-2 text-amber-400 font-medium text-sm">
+                      <UserPlus className="h-4 w-4" />
+                      <span>Pending Rejoin Requests ({pendingRejoinRequests.length})</span>
+                    </div>
+                    <div className="space-y-2">
+                      {pendingRejoinRequests.map((request) => (
+                        <div key={request.participantId} className="flex items-center justify-between gap-2 p-2 bg-background/50 rounded-md">
+                          <span className="text-sm truncate">{request.username}</span>
+                          <div className="flex gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-green-400 border-green-500/30 hover:bg-green-500/10"
+                              onClick={() => {
+                                sendWsMessage({
+                                  type: "rejoin_decision",
+                                  raceId: race.id,
+                                  participantId: myParticipant.id,
+                                  targetParticipantId: request.participantId,
+                                  approved: true,
+                                });
+                              }}
+                              disabled={!wsConnected || !hasJoinedRace}
+                            >
+                              <Check className="h-3 w-3 mr-1" />
+                              Allow
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-red-400 border-red-500/30 hover:bg-red-500/10"
+                              onClick={() => {
+                                sendWsMessage({
+                                  type: "rejoin_decision",
+                                  raceId: race.id,
+                                  participantId: myParticipant.id,
+                                  targetParticipantId: request.participantId,
+                                  approved: false,
+                                });
+                              }}
+                              disabled={!wsConnected || !hasJoinedRace}
+                            >
+                              <X className="h-3 w-3 mr-1" />
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Show Start Race button only for the host, or show waiting message for others */}
                 {/* Minimum requirements: 1 human + bots OR 2+ humans (no bots) */}
                 {(() => {
@@ -2676,7 +2620,7 @@ export default function RacePage() {
               <AuthPrompt message="save this race's results and increase your global rating!" />
             </div>
             {/* Network status banner */}
-            <NetworkStatusBanner
+            <RaceNetworkBanner
               isConnected={wsConnected}
               isReconnecting={isReconnecting}
               reconnectAttempt={reconnectAttempts.current}
@@ -2936,8 +2880,7 @@ export default function RacePage() {
                                 className={`${className} relative`}
                               >
                                 <span
-                                  className={`absolute left-0 top-0 w-[2px] h-full bg-yellow-400 transition-all duration-100 ${isFocused ? 'animate-caret-smooth' : 'opacity-50'
-                                    }`}
+                                  className={`caret-ultra-smooth ${isFocused ? 'caret-focused' : 'caret-unfocused'}`}
                                 />
                                 {isSpace ? '\u00A0' : char}
                               </span>
@@ -3076,38 +3019,54 @@ export default function RacePage() {
                     </div>
 
                     {/* Quick Stats */}
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="bg-white/5 rounded-xl p-3 sm:p-4 border border-white/10">
-                        <div className="flex items-center justify-center gap-2 text-primary mb-1">
-                          <Gauge className="h-4 w-4" />
-                          <span className="text-xs uppercase tracking-wide">Speed</span>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-primary mb-1">
+                          <Gauge className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Speed</span>
                         </div>
-                        <p className="text-xl sm:text-2xl md:text-3xl font-bold">{lastResultSnapshot.wpm}</p>
-                        <p className="text-xs text-muted-foreground">WPM</p>
+                        <p className="text-lg sm:text-2xl font-bold">{lastResultSnapshot.wpm}</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">WPM</p>
                       </div>
-                      <div className="bg-white/5 rounded-xl p-3 sm:p-4 border border-white/10">
-                        <div className="flex items-center justify-center gap-2 text-green-400 mb-1">
-                          <Target className="h-4 w-4" />
-                          <span className="text-xs uppercase tracking-wide">Accuracy</span>
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-green-400 mb-1">
+                          <Target className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Accuracy</span>
                         </div>
-                        <p className="text-xl sm:text-2xl md:text-3xl font-bold">{lastResultSnapshot.accuracy}%</p>
-                        <p className="text-xs text-muted-foreground">Correct</p>
+                        <p className="text-lg sm:text-2xl font-bold">{lastResultSnapshot.accuracy}%</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">Correct</p>
                       </div>
-                      <div className="bg-white/5 rounded-xl p-3 sm:p-4 border border-white/10">
-                        <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
-                          <Zap className="h-4 w-4" />
-                          <span className="text-xs uppercase tracking-wide">Characters</span>
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-cyan-400 mb-1">
+                          <Timer className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Duration</span>
                         </div>
-                        <p className="text-xl sm:text-2xl md:text-3xl font-bold">{lastResultSnapshot.characters}</p>
-                        <p className="text-xs text-muted-foreground">Typed</p>
+                        <p className="text-lg sm:text-2xl font-bold">{lastResultSnapshot.duration}s</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">Time</p>
                       </div>
-                      <div className="bg-white/5 rounded-xl p-3 sm:p-4 border border-white/10">
-                        <div className="flex items-center justify-center gap-2 text-yellow-400 mb-1">
-                          <Award className="h-4 w-4" />
-                          <span className="text-xs uppercase tracking-wide">Tier</span>
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-orange-400 mb-1">
+                          <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Consistency</span>
                         </div>
-                        <p className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold">{getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy).badge}</p>
-                        <p className="text-xs text-muted-foreground">Performance</p>
+                        <p className="text-lg sm:text-2xl font-bold">{lastResultSnapshot.consistency}%</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">Stable</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-purple-400 mb-1">
+                          <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Characters</span>
+                        </div>
+                        <p className="text-lg sm:text-2xl font-bold">{lastResultSnapshot.characters}</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">Typed</p>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-2.5 sm:p-4 border border-white/10 text-center">
+                        <div className="flex items-center justify-center gap-1.5 text-yellow-400 mb-1">
+                          <Award className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wide">Tier</span>
+                        </div>
+                        <p className="text-base sm:text-xl font-bold">{getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy).badge}</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">Performance</p>
                       </div>
                     </div>
                   </div>
@@ -3335,6 +3294,29 @@ export default function RacePage() {
               <TabsContent value="certificate" className="space-y-4">
                 <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/20">
                   <CardContent className="pt-6">
+                    {!user && (
+                      <div className="mb-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-yellow-400">
+                              Sign in to get a verifiable certificate
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Your certificate cannot be verified without an account. Sign in to get an official, verifiable certificate with a unique verification ID.
+                            </p>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="mt-2 border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
+                              onClick={() => setLocation("/login")}
+                            >
+                              Sign In for Verifiable Certificate
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {lastResultSnapshot ? (
                       <div className="overflow-x-auto -mx-2 sm:mx-0 px-2">
                         <RaceCertificate
@@ -3348,6 +3330,7 @@ export default function RacePage() {
                           duration={lastResultSnapshot.duration}
                           username={user?.username}
                           raceId={race?.id?.toString()}
+                          verificationId={certificateVerificationId || undefined}
                         />
                       </div>
                     ) : (
@@ -3373,69 +3356,154 @@ export default function RacePage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {/* Share Message Preview */}
+                    {lastResultSnapshot && (
+                      <div className="relative">
+                        <div className="absolute -top-2 left-3 px-2 bg-background text-xs font-medium text-muted-foreground">
+                          Share Message Preview
+                        </div>
+                        <div className="p-4 bg-gradient-to-br from-slate-900/50 to-slate-800/50 rounded-xl border border-purple-500/20 text-sm leading-relaxed">
+                          <div className="space-y-2">
+                            <p className="text-base font-medium">
+                              🏁 <span className="text-purple-400 font-bold">RACE COMPLETE: #{lastResultSnapshot.placement} Place!</span>
+                            </p>
+                            <p className="text-muted-foreground">
+                              ⚡ Speed: <span className="text-foreground font-semibold">{lastResultSnapshot.wpm} WPM</span>
+                            </p>
+                            <p className="text-muted-foreground">
+                              ✨ Accuracy: <span className="text-foreground font-semibold">{lastResultSnapshot.accuracy}%</span>
+                            </p>
+                            <p className="text-muted-foreground">
+                              🎖️ Result: <span className="text-foreground font-semibold">#{lastResultSnapshot.placement} of {lastResultSnapshot.totalParticipants}</span>
+                            </p>
+                            <p className="text-muted-foreground">
+                              🏆 Level: <span className="text-purple-400 font-semibold">{getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy).title}</span>
+                            </p>
+                            <p className="text-primary/80 text-xs mt-3 font-medium">
+                              Can you beat my race time? 🏎️
+                            </p>
+                            <p className="text-xs text-primary mt-2 font-medium">
+                              🔗 https://typemasterai.com/multiplayer
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              #TypeMasterAI #TypingRace #Multiplayer
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const rating = getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy);
+                            const text = `🏁 Just finished a multiplayer race!\n\n⚡ ${lastResultSnapshot.wpm} WPM with ${lastResultSnapshot.accuracy}% accuracy\n🏆 Placed #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}\n🎖️ ${rating.title}\n\nCan you beat my time?\n\n🔗 https://typemasterai.com/multiplayer\n\n#TypeMasterAI #TypingRace`;
+                            navigator.clipboard.writeText(text);
+                            toast.success("Share message copied!", { description: "Paste into your social media post" });
+                          }}
+                          className="absolute top-3 right-3 p-1.5 rounded-md bg-background/80 hover:bg-background border border-border/50 transition-colors"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      </div>
+                    )}
+
                     {/* Quick Share Buttons */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                      <Button
-                        variant="outline"
-                        className="gap-2 bg-[#1DA1F2]/10 border-[#1DA1F2]/30 hover:bg-[#1DA1F2]/20 text-[#1DA1F2]"
-                        onClick={() => {
-                          const text = `🏁 Just finished a multiplayer race!\n\n⚡ ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy\n🏆 Placed #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}\n\nCan you beat my time?\n\n🔗 typemasterai.com/multiplayer`;
-                          window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
-                        }}
-                      >
-                        <Twitter className="h-4 w-4" />
-                        Twitter
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="gap-2 bg-[#1877F2]/10 border-[#1877F2]/30 hover:bg-[#1877F2]/20 text-[#1877F2]"
-                        onClick={() => {
-                          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/multiplayer')}`, '_blank');
-                        }}
-                      >
-                        <Facebook className="h-4 w-4" />
-                        Facebook
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="gap-2 bg-[#0A66C2]/10 border-[#0A66C2]/30 hover:bg-[#0A66C2]/20 text-[#0A66C2]"
-                        onClick={() => {
-                          const text = `Just completed a multiplayer typing race! ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy. #typing #productivity`;
-                          window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}&summary=${encodeURIComponent(text)}`, '_blank');
-                        }}
-                      >
-                        <Linkedin className="h-4 w-4" />
-                        LinkedIn
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="gap-2"
-                        onClick={() => {
-                          const text = `Check out my race result: ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy! Try it at typemasterai.com/multiplayer`;
-                          window.open(`mailto:?subject=My Typing Race Result&body=${encodeURIComponent(text)}`, '_blank');
-                        }}
-                      >
-                        <Mail className="h-4 w-4" />
-                        Email
-                      </Button>
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-center text-muted-foreground uppercase tracking-wide">
+                        Click to Share Instantly
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-[#1DA1F2]/10 border-[#1DA1F2]/30 hover:bg-[#1DA1F2]/20 text-[#1DA1F2]"
+                          onClick={() => {
+                            const text = `🏁 Just finished a multiplayer race!\n\n⚡ ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy\n🏆 Placed #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}\n\nCan you beat my time?\n\n🔗 typemasterai.com/multiplayer`;
+                            window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                          }}
+                        >
+                          <Twitter className="h-4 w-4" />
+                          <span className="text-xs font-medium">X (Twitter)</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-[#1877F2]/10 border-[#1877F2]/30 hover:bg-[#1877F2]/20 text-[#1877F2]"
+                          onClick={() => {
+                            const text = `🏁 I just finished a multiplayer typing race! Placed #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants} with ${lastResultSnapshot?.wpm} WPM and ${lastResultSnapshot?.accuracy}% accuracy! 🏎️`;
+                            window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/multiplayer')}&quote=${encodeURIComponent(text)}`, '_blank');
+                          }}
+                        >
+                          <Facebook className="h-4 w-4" />
+                          <span className="text-xs font-medium">Facebook</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-[#0A66C2]/10 border-[#0A66C2]/30 hover:bg-[#0A66C2]/20 text-[#0A66C2]"
+                          onClick={() => {
+                            const text = `Just completed a multiplayer typing race! ${lastResultSnapshot?.wpm} WPM with ${lastResultSnapshot?.accuracy}% accuracy. #typing #productivity`;
+                            window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}&summary=${encodeURIComponent(text)}`, '_blank');
+                          }}
+                        >
+                          <Linkedin className="h-4 w-4" />
+                          <span className="text-xs font-medium">LinkedIn</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-[#25D366]/10 border-[#25D366]/30 hover:bg-[#25D366]/20 text-[#25D366]"
+                          onClick={() => {
+                            const rating = getTypingPerformanceRating(lastResultSnapshot?.wpm || 0, lastResultSnapshot?.accuracy || 0);
+                            const waText = `*TypeMasterAI Race Result*\n\nPlacement: *#${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}*\nSpeed: *${lastResultSnapshot?.wpm} WPM*\nAccuracy: *${lastResultSnapshot?.accuracy}%*\nLevel: ${rating.title}\n\nJoin the race: https://typemasterai.com/multiplayer`;
+                            window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank');
+                          }}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                          <span className="text-xs font-medium">WhatsApp</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-[#0088cc]/10 border-[#0088cc]/30 hover:bg-[#0088cc]/20 text-[#0088cc]"
+                          onClick={() => {
+                            const rating = getTypingPerformanceRating(lastResultSnapshot?.wpm || 0, lastResultSnapshot?.accuracy || 0);
+                            const text = `🏁 RACE COMPLETE!\n\n🏎️ #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}\n⚡ ${lastResultSnapshot?.wpm} WPM | ✨ ${lastResultSnapshot?.accuracy}%\n🎖️ ${rating.title}`;
+                            window.open(`https://t.me/share/url?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}&text=${encodeURIComponent(text)}`, '_blank');
+                          }}
+                        >
+                          <Send className="h-4 w-4" />
+                          <span className="text-xs font-medium">Telegram</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 bg-gray-500/10 border-gray-500/30 hover:bg-gray-500/20 text-gray-400"
+                          onClick={() => {
+                            const rating = getTypingPerformanceRating(lastResultSnapshot?.wpm || 0, lastResultSnapshot?.accuracy || 0);
+                            const subject = encodeURIComponent(`🏁 TypeMasterAI Race Result - #${lastResultSnapshot?.placement} Place!`);
+                            const body = encodeURIComponent(`Hello!\n\nI earned a TypeMasterAI Race Certificate!\n\n🏎️ Placement: #${lastResultSnapshot?.placement} of ${lastResultSnapshot?.totalParticipants}\n⚡ Speed: ${lastResultSnapshot?.wpm} WPM\n✨ Accuracy: ${lastResultSnapshot?.accuracy}%\n🎖️ Level: ${rating.title}\n\n👉 Join: https://typemasterai.com/multiplayer`);
+                            window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+                          }}
+                        >
+                          <Mail className="h-4 w-4" />
+                          <span className="text-xs font-medium">Email</span>
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Copy Link */}
-                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                      <Input
-                        readOnly
-                        value="typemasterai.com/multiplayer"
-                        className="bg-white/5 border-white/10 flex-1"
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          navigator.clipboard.writeText('https://typemasterai.com/multiplayer');
-                          toast.success('Link copied!');
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-center text-muted-foreground uppercase tracking-wide">
+                        Permanent Link
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                        <Input
+                          readOnly
+                          value="typemasterai.com/multiplayer"
+                          className="bg-white/5 border-white/10 flex-1"
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            navigator.clipboard.writeText('https://typemasterai.com/multiplayer');
+                            toast.success('Link copied!');
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Share Certificate Button */}
@@ -3446,6 +3514,20 @@ export default function RacePage() {
                       <Award className="h-4 w-4" />
                       Share Certificate Image
                     </Button>
+
+                    {/* Sharing Tips */}
+                    <div className="space-y-2">
+                      <div className="p-3 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-500/20">
+                        <p className="text-xs text-center text-muted-foreground">
+                          📱 <span className="font-medium text-foreground">Mobile:</span> Use "Share Certificate Image" to attach the certificate directly!
+                        </p>
+                      </div>
+                      <div className="p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-500/20">
+                        <p className="text-xs text-center text-muted-foreground">
+                          💻 <span className="font-medium text-foreground">Desktop:</span> Copy the share message above, then paste into Twitter, LinkedIn, Discord, or any social media!
+                        </p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -3656,6 +3738,7 @@ export default function RacePage() {
                       duration={lastResultSnapshot.duration}
                       username={user?.username}
                       raceId={race?.id?.toString()}
+                      verificationId={certificateVerificationId || undefined}
                       minimal={true}
                     />
                   </div>
@@ -3761,7 +3844,7 @@ export default function RacePage() {
                           Official race certificate earned! 🏎️
                         </p>
                         <p className="text-xs text-primary mt-2 font-medium">
-                          🔗 https://typemasterai.com/race
+                          🔗 https://typemasterai.com/multiplayer
                         </p>
                       </div>
                     </div>
@@ -3773,7 +3856,7 @@ export default function RacePage() {
 ⚡ ${lastResultSnapshot.wpm} WPM | ✨ ${lastResultSnapshot.accuracy}% Accuracy
 🎖️ ${rating.title}
 
-🔗 https://typemasterai.com/race
+🔗 https://typemasterai.com/multiplayer
 
 #TypeMasterAI #TypingRace`;
                         navigator.clipboard.writeText(text);
@@ -3796,7 +3879,7 @@ export default function RacePage() {
                           const text = encodeURIComponent(`🏆 Just earned my TypeMasterAI Race Certificate! #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants} with ${lastResultSnapshot.wpm} WPM! 🏎️
 
 #TypeMasterAI #TypingRace`);
-                          window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent('https://typemasterai.com/race')}`, '_blank', 'width=600,height=400');
+                          window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent('https://typemasterai.com/multiplayer')}`, '_blank', 'width=600,height=400');
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/25 border border-[#1DA1F2]/20 transition-all"
                       >
@@ -3808,7 +3891,7 @@ export default function RacePage() {
                           const text = encodeURIComponent(`🏆 I just earned my official TypeMasterAI Race Certificate!
 
 Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants} with ${lastResultSnapshot.wpm} WPM and ${lastResultSnapshot.accuracy}% accuracy! 🏎️`);
-                          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/race')}&quote=${text}`, '_blank', 'width=600,height=400');
+                          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://typemasterai.com/multiplayer')}&quote=${text}`, '_blank', 'width=600,height=400');
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/25 border border-[#1877F2]/20 transition-all"
                       >
@@ -3817,7 +3900,7 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                       </button>
                       <button
                         onClick={() => {
-                          window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/race')}`, '_blank', 'width=600,height=400');
+                          window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}`, '_blank', 'width=600,height=400');
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0A66C2]/10 hover:bg-[#0A66C2]/25 border border-[#0A66C2]/20 transition-all"
                       >
@@ -3827,7 +3910,7 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                       <button
                         onClick={() => {
                           const rating = getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy);
-                          const waText = `*TypeMasterAI Race Certificate*\n\nPlacement: *#${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}*\nSpeed: *${lastResultSnapshot.wpm} WPM*\nAccuracy: *${lastResultSnapshot.accuracy}%*\nLevel: ${rating.title}\n\nJoin the race: https://typemasterai.com/race`;
+                          const waText = `*TypeMasterAI Race Certificate*\n\nPlacement: *#${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}*\nSpeed: *${lastResultSnapshot.wpm} WPM*\nAccuracy: *${lastResultSnapshot.accuracy}%*\nLevel: ${rating.title}\n\nJoin the race: https://typemasterai.com/multiplayer`;
                           window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank', 'width=600,height=400');
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/25 border border-[#25D366]/20 transition-all"
@@ -3839,7 +3922,7 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                         onClick={() => {
                           const rating = getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy);
                           const text = `🏆 RACE CERTIFIED!\n\n🏎️ #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}\n⚡ ${lastResultSnapshot.wpm} WPM | ✨ ${lastResultSnapshot.accuracy}%\n🎖️ ${rating.title}`;
-                          window.open(`https://t.me/share/url?url=${encodeURIComponent('https://typemasterai.com/race')}&text=${encodeURIComponent(text)}`, '_blank', 'width=600,height=400');
+                          window.open(`https://t.me/share/url?url=${encodeURIComponent('https://typemasterai.com/multiplayer')}&text=${encodeURIComponent(text)}`, '_blank', 'width=600,height=400');
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0088cc]/10 hover:bg-[#0088cc]/25 border border-[#0088cc]/20 transition-all"
                       >
@@ -3850,7 +3933,7 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                         onClick={() => {
                           const rating = getTypingPerformanceRating(lastResultSnapshot.wpm, lastResultSnapshot.accuracy);
                           const subject = encodeURIComponent(`🏆 TypeMasterAI Race Certificate - #${lastResultSnapshot.placement} Place!`);
-                          const body = encodeURIComponent(`Hello!\n\nI earned a TypeMasterAI Race Certificate!\n\n🏎️ Placement: #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}\n⚡ Speed: ${lastResultSnapshot.wpm} WPM\n✨ Accuracy: ${lastResultSnapshot.accuracy}%\n🎖️ Level: ${rating.title}\n\n👉 Join: https://typemasterai.com/race`);
+                          const body = encodeURIComponent(`Hello!\n\nI earned a TypeMasterAI Race Certificate!\n\n🏎️ Placement: #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipants}\n⚡ Speed: ${lastResultSnapshot.wpm} WPM\n✨ Accuracy: ${lastResultSnapshot.accuracy}%\n🎖️ Level: ${rating.title}\n\n👉 Join: https://typemasterai.com/multiplayer`);
                           window.open(`mailto:?subject=${subject}&body=${body}`);
                         }}
                         className="flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-500/10 hover:bg-gray-500/25 border border-gray-500/20 transition-all"
@@ -3897,6 +3980,7 @@ Finished #${lastResultSnapshot.placement} of ${lastResultSnapshot.totalParticipa
                         duration={lastResultSnapshot.duration}
                         username={user?.username}
                         raceId={race?.id?.toString()}
+                        verificationId={certificateVerificationId || undefined}
                       />
                     </DialogContent>
                   </Dialog>

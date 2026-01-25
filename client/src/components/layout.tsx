@@ -88,17 +88,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground flex flex-col">
-      <header className="fixed top-0 left-0 right-0 z-50 isolate border-b border-border/40 bg-background/95 backdrop-blur-md shadow-sm">
-        <div className="max-w-[1800px] mx-auto px-2 h-14 flex items-center justify-between">
+      <header className="fixed top-0 left-0 right-0 z-50 isolate border-b border-border/40 bg-background/95 backdrop-blur-md shadow-sm overflow-x-hidden">
+        <div className="max-w-[1800px] mx-auto px-2 sm:px-4 h-14 flex items-center justify-between gap-2 min-w-0">
           <Link href="/">
-            <div className="flex items-center shrink-0 cursor-pointer group p-1.5 whitespace-nowrap">
+            <div className="flex items-center shrink-0 cursor-pointer group p-1.5 whitespace-nowrap min-w-0">
               <LogoHorizontal
-                className="h-8 w-auto transition-transform group-hover:scale-105"
+                className="h-7 sm:h-8 w-auto transition-transform group-hover:scale-105 max-w-[120px] sm:max-w-none"
               />
             </div>
           </Link>
 
-          <nav className="hidden md:flex items-center flex-1 justify-center">
+          <nav className="hidden md:flex items-center flex-1 justify-center min-w-0 overflow-x-auto">
             {allNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = location === item.href;
@@ -244,13 +244,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
           </nav>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 min-w-0 ml-2">
             {user ? (
               <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-7 w-7 rounded-full p-0">
-                      <Avatar className="h-7 w-7">
+                    <Button variant="ghost" className="h-7 w-7 rounded-full p-0 shrink-0">
+                      <Avatar className="h-7 w-7 shrink-0">
                         <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                           {user.username[0].toUpperCase()}
                         </AvatarFallback>

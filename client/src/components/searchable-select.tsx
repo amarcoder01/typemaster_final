@@ -67,7 +67,7 @@ export function SearchableSelect({
           data-testid={dataTestId || `searchable-select-${placeholder.toLowerCase().replace(/\s+/g, '-')}`}
           title={disabled ? disabledTooltip : undefined}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {icon}
             <span className="truncate">
               {selectedOption ? selectedOption.label : placeholder}

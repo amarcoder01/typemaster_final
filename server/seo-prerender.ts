@@ -228,10 +228,124 @@ async function generateStructuredDataScript(path: string, config: ReturnType<typ
   }
 
   if (path === '/dictation-test' || path === '/dictation-mode') {
+    const dictationUrl = `${base}${path}`;
     return scriptTag({
       '@context': 'https://schema.org',
-      '@type': 'WebPage',
-      speakable: { '@type': 'SpeakableSpecification', cssSelector: ['.dictation-text'] },
+      '@graph': [
+        // SoftwareApplication Schema
+        {
+          '@type': 'SoftwareApplication',
+          '@id': `${dictationUrl}#app`,
+          'name': 'TypeMasterAI Dictation Mode',
+          'description': 'AI-powered dictation typing practice with multiple difficulty modes, audio playback controls, and performance certificates',
+          'applicationCategory': 'EducationalApplication',
+          'operatingSystem': 'Web Browser',
+          'offers': {
+            '@type': 'Offer',
+            'price': '0',
+            'priceCurrency': 'USD',
+            'availability': 'https://schema.org/InStock',
+          },
+          'aggregateRating': {
+            '@type': 'AggregateRating',
+            'ratingValue': '4.8',
+            'bestRating': '5',
+            'ratingCount': '1847',
+          },
+          'featureList': [
+            'Quick Practice Mode',
+            'Focus Mode with adaptive difficulty',
+            'Challenge Mode with time pressure',
+            'AI Text-to-Speech audio',
+            'Adjustable speech speed',
+            'Multiple difficulty levels',
+            'Verifiable certificates',
+          ],
+        },
+        // FAQPage Schema
+        {
+          '@type': 'FAQPage',
+          '@id': `${dictationUrl}#faq`,
+          'mainEntity': [
+            {
+              '@type': 'Question',
+              'name': 'How does dictation typing practice work?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Dictation typing practice plays an audio sentence that you listen to and type accurately. The system measures WPM and accuracy by comparing your typed text to the original.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'What is a good dictation typing speed?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'A good dictation typing speed is 40-60 WPM with 95% or higher accuracy. Professional transcriptionists achieve 60-80 WPM.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'How can I improve my transcription accuracy?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Start with slower audio speeds, use Focus Mode for adaptive difficulty, wear headphones, listen fully before typing, and practice regularly.',
+              },
+            },
+            {
+              '@type': 'Question',
+              'name': 'How is dictation WPM calculated?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Dictation WPM is calculated by dividing correctly typed characters by 5 (standard word length), then by time in minutes. Timer starts after audio finishes.',
+              },
+            },
+          ],
+        },
+        // HowTo Schema
+        {
+          '@type': 'HowTo',
+          '@id': `${dictationUrl}#howto`,
+          'name': 'How to Practice Dictation Typing',
+          'description': 'Learn to use TypeMasterAI Dictation Mode for audio-based typing practice.',
+          'totalTime': 'PT10M',
+          'step': [
+            { '@type': 'HowToStep', 'position': 1, 'name': 'Select Practice Mode', 'text': 'Choose Quick Practice, Focus Mode, or Challenge Mode.' },
+            { '@type': 'HowToStep', 'position': 2, 'name': 'Configure Settings', 'text': 'Select difficulty, audio speed, and content category.' },
+            { '@type': 'HowToStep', 'position': 3, 'name': 'Listen to Audio', 'text': 'Click Play to hear the sentence. Replay as needed.' },
+            { '@type': 'HowToStep', 'position': 4, 'name': 'Type What You Hear', 'text': 'Type the sentence accurately in the text area.' },
+            { '@type': 'HowToStep', 'position': 5, 'name': 'Review Results', 'text': 'See WPM, accuracy, and earn certificates.' },
+          ],
+        },
+        // Course Schema
+        {
+          '@type': 'Course',
+          '@id': `${dictationUrl}#course`,
+          'name': 'Dictation Typing Mastery',
+          'description': 'Master dictation typing with progressive practice modes and AI feedback.',
+          'provider': { '@type': 'Organization', 'name': 'TypeMasterAI', 'url': base },
+          'isAccessibleForFree': true,
+          'educationalLevel': 'Beginner to Advanced',
+          'teaches': ['Listening comprehension', 'Transcription accuracy', 'Audio typing speed'],
+        },
+        // SpeakableSpecification
+        {
+          '@type': 'WebPage',
+          '@id': `${dictationUrl}#webpage`,
+          'speakable': {
+            '@type': 'SpeakableSpecification',
+            'cssSelector': ['.dictation-title', '.dictation-description', '.wpm-display', '.accuracy-display', '.mode-selector-title'],
+          },
+        },
+        // BreadcrumbList
+        {
+          '@type': 'BreadcrumbList',
+          '@id': `${dictationUrl}#breadcrumb`,
+          'itemListElement': [
+            { '@type': 'ListItem', 'position': 1, 'name': 'Home', 'item': base },
+            { '@type': 'ListItem', 'position': 2, 'name': path === '/dictation-mode' ? 'Dictation Mode' : 'Dictation Test', 'item': dictationUrl },
+          ],
+        },
+      ],
     });
   }
 

@@ -10,7 +10,8 @@ import {
   Target,
   Clock,
   RotateCcw,
-  TrendingUp
+  TrendingUp,
+  Settings2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,6 +41,7 @@ interface DictationSessionCompleteProps {
   onNewSession: () => void;
   onShare: () => void;
   onSessionLengthChange: (length: number) => void;
+  onChangeMode?: () => void;
   // Certificate functions
   onViewCertificate?: () => void;
 }
@@ -74,6 +76,7 @@ export function DictationSessionComplete({
   onNewSession,
   onShare,
   onSessionLengthChange,
+  onChangeMode,
   onViewCertificate,
 }: DictationSessionCompleteProps) {
   const [, setLocation] = useLocation();
@@ -307,6 +310,17 @@ export function DictationSessionComplete({
                   <Award className="w-5 h-5" />
                   Get Certificate
                 </button>
+                {onChangeMode && (
+                  <Button 
+                    onClick={onChangeMode} 
+                    variant="outline" 
+                    size="lg" 
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Settings2 className="w-4 h-4 mr-2" />
+                    Change Mode
+                  </Button>
+                )}
                 <Button onClick={onNewSession} size="lg" className="flex-1 sm:flex-none shadow-lg shadow-primary/20">
                   <RotateCcw className="w-4 h-4 mr-2" />
                   New Session
