@@ -370,6 +370,9 @@ export default function RacePage() {
   const hasJoinedRef = useRef(false);
   const lastJoinedRaceIdRef = useRef<number | null>(null);
   const [hasJoinedRace, setHasJoinedRace] = useState(false); // State for UI reactivity
+  const hasLeftRef = useRef(false); // Track if leave message was already sent
+  const reconnectBlockedUntilRef = useRef<number | null>(null); // Prevent reconnect storms
+  const toastCooldownRef = useRef<Map<string, number>>(new Map());
   const joinRetryAttemptsRef = useRef(0);
   const maxJoinRetryAttempts = 3;
   const joinRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -400,6 +403,7 @@ export default function RacePage() {
   const [isLeaving, setIsLeaving] = useState(false);
   const [readyStates, setReadyStates] = useState<Map<number, boolean>>(new Map());
   const [isRoomLocked, setIsRoomLocked] = useState(false);
+  const [isAwaitingRejoinApproval, setIsAwaitingRejoinApproval] = useState(false);
   const [rematchInfo, setRematchInfo] = useState<{
     newRaceId: number;
     roomCode: string;
@@ -462,6 +466,7 @@ export default function RacePage() {
     setRematchInfo(null);
     setIsCreatingRematch(false);
     hasJoinedRef.current = false;
+    hasLeftRef.current = false; // Reset leave flag for new race
     lastJoinedRaceIdRef.current = null;
     setHasJoinedRace(false);
     joinRetryAttemptsRef.current = 0;
@@ -599,8 +604,10 @@ export default function RacePage() {
       
       // Send leave message before closing WebSocket
       // Use wsRef.current to get the current WebSocket (not stale closure value)
+      // Skip if leave was already sent (prevents double leave from explicit leave + cleanup)
       const currentWs = wsRef.current;
-      if (currentWs && currentWs.readyState === WebSocket.OPEN && myParticipantRef.current && raceRef.current) {
+      if (!hasLeftRef.current && hasJoinedRef.current && currentWs && currentWs.readyState === WebSocket.OPEN && myParticipantRef.current && raceRef.current) {
+        hasLeftRef.current = true;
         try {
           currentWs.send(JSON.stringify({
             type: "leave",
@@ -624,7 +631,11 @@ export default function RacePage() {
   // Handle page unload/navigation - use sendBeacon for reliable delivery
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (myParticipantRef.current && raceRef.current) {
+      // Skip if leave was already sent via WebSocket
+      if (hasLeftRef.current) return;
+      
+      if (hasJoinedRef.current && myParticipantRef.current && raceRef.current) {
+        hasLeftRef.current = true;
         // Use sendBeacon for reliable delivery during unload
         const leaveData = JSON.stringify({
           raceId: raceRef.current.id,
@@ -1172,6 +1183,12 @@ export default function RacePage() {
             };
             setMyParticipant(merged);
             persistParticipant(merged);
+          } else {
+            // Participant not found in race data - stale localStorage, clear it
+            console.log(`[Race] Stale participant ${effectiveMyParticipant.id} not found in race ${data.race.id} - clearing localStorage`);
+            clearParticipantKeys();
+            setMyParticipant(null);
+            myParticipantRef.current = null;
           }
         } else if (user) {
           // If no participant set but user is logged in, try to find their participant
@@ -1256,7 +1273,70 @@ export default function RacePage() {
     }
   }
 
+  // Fallback check: If stuck in awaiting approval state, periodically check if we're actually in the race
+  useEffect(() => {
+    if (!isAwaitingRejoinApproval || !race || !myParticipant) return;
+    
+    const checkInterval = setInterval(async () => {
+      try {
+        const guestId = !user ? localStorage.getItem("multiplayer_guest_id") : null;
+        const url = guestId 
+          ? `/api/races/${race.id}?guestId=${encodeURIComponent(guestId)}`
+          : `/api/races/${race.id}`;
+        const response = await fetch(url);
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Check if our participant is in the participants list (means we were approved)
+          const isInRace = data.participants?.some((p: Participant) => p.id === myParticipant.id);
+          
+          if (isInRace) {
+            console.log("[Race Rejoin] Fallback check: Participant is in race, clearing awaiting state");
+            setIsAwaitingRejoinApproval(false);
+            setParticipants(data.participants);
+            setRace(data.race);
+            if (data.hostParticipantId !== undefined) {
+              setHostParticipantId(data.hostParticipantId);
+            }
+            setHasJoinedRace(true);
+            hasJoinedRef.current = true;
+            toast.success("Rejoin approved! Welcome back!", { duration: 3000 });
+          }
+        }
+      } catch (error) {
+        console.error("[Race Rejoin] Fallback check failed:", error);
+      }
+    }, 3000); // Check every 3 seconds
+    
+    return () => clearInterval(checkInterval);
+  }, [isAwaitingRejoinApproval, race, myParticipant, user]);
+
+  const canShowToast = (key: string, cooldownMs = 5000) => {
+    const now = Date.now();
+    const last = toastCooldownRef.current.get(key) ?? 0;
+    if (now - last < cooldownMs) return false;
+    toastCooldownRef.current.set(key, now);
+    return true;
+  };
+
+  const blockReconnect = useCallback((reason?: string, fallbackSeconds = 30) => {
+    let blockSeconds = fallbackSeconds;
+    if (reason) {
+      const match = reason.match(/(\d+)\s*seconds?/i);
+      if (match) {
+        const parsed = parseInt(match[1], 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          blockSeconds = parsed;
+        }
+      }
+    }
+    reconnectBlockedUntilRef.current = Date.now() + blockSeconds * 1000;
+  }, []);
+
   const attemptReconnect = useCallback(() => {
+    if (reconnectBlockedUntilRef.current && Date.now() < reconnectBlockedUntilRef.current) {
+      return;
+    }
     if (reconnectAttempts.current >= maxReconnectAttempts) {
       setIsReconnecting(false);
       toast.error("Unable to reconnect. Please refresh the page.", {
@@ -1290,12 +1370,16 @@ export default function RacePage() {
       clearTimeout(reconnectTimeoutRef.current);
     }
     reconnectAttempts.current = 0;
+    reconnectBlockedUntilRef.current = null;
     setIsReconnecting(true);
     connectWebSocket();
   }, []);
 
   function connectWebSocket() {
     if (!isOnline) {
+      return;
+    }
+    if (reconnectBlockedUntilRef.current && Date.now() < reconnectBlockedUntilRef.current) {
       return;
     }
 
@@ -1326,8 +1410,13 @@ export default function RacePage() {
     socket.onmessage = (event) => {
       // Ignore messages from stale sockets (race changed / reconnect overlap)
       if (socketRaceKey !== params?.id) return;
-      const message = JSON.parse(event.data);
-      handleWebSocketMessage(message);
+      try {
+        const message = JSON.parse(event.data);
+        handleWebSocketMessage(message);
+      } catch (error) {
+        console.error("[Race] Failed to parse WebSocket message:", error, event.data);
+        // Don't crash the app - just log the error
+      }
     };
 
     socket.onerror = (error) => {
@@ -1345,6 +1434,16 @@ export default function RacePage() {
       }
       hasJoinedRef.current = false;
       setHasJoinedRace(false); // Reset state to prevent UI from showing authenticated when not
+      setIsAwaitingRejoinApproval(false); // Clear rejoin approval state on disconnect
+
+      if (event.code === 1008 || event.code === 1013) {
+        blockReconnect(event.reason, 30);
+        return;
+      }
+
+      if (event.code === 4000) {
+        return;
+      }
 
       if (event.code !== 1000 && race?.status !== "finished") {
         attemptReconnect();
@@ -1823,18 +1922,56 @@ export default function RacePage() {
         break;
       case "rejoin_request_pending":
         // Kicked player's request is pending host approval
-        toast.info(message.message || "Rejoin request sent. Waiting for host approval...", { duration: 5000 });
+        setIsAwaitingRejoinApproval(true);
+        toast.info(message.message || "Rejoin request sent. Waiting for host approval...", { duration: 8000 });
         break;
       case "rejoin_approved":
-        // Host approved our rejoin request - reconnect
-        toast.success(message.message || "Rejoin approved! Reconnecting...", { duration: 3000 });
-        // Reload the page to rejoin properly
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+        // Host approved our rejoin request - seamless rejoin without page reload
+        try {
+          console.log("[Race Rejoin] Received rejoin_approved message", message);
+          setIsAwaitingRejoinApproval(false);
+          toast.success(message.message || "Rejoin approved! Welcome back!", { duration: 3000 });
+          
+          // Update local state with the received race data
+          if (message.race) {
+            setRace(message.race);
+            raceRef.current = message.race;
+          }
+          if (message.participants && Array.isArray(message.participants)) {
+            setParticipants(message.participants);
+            // Check if we're in the participants list to confirm we're actually joined
+            const myParticipantId = myParticipantRef.current?.id;
+            if (myParticipantId && message.participants.some((p: Participant) => p.id === myParticipantId)) {
+              console.log("[Race Rejoin] Confirmed: participant is in the participants list");
+            }
+          }
+          if (message.hostParticipantId !== undefined) {
+            setHostParticipantId(message.hostParticipantId);
+          }
+          if (message.chatHistory && Array.isArray(message.chatHistory)) {
+            setChatMessages(message.chatHistory);
+          }
+          if (message.isRoomLocked !== undefined) {
+            setIsRoomLocked(message.isRoomLocked);
+          }
+          
+          // Mark as joined since we're now part of the race
+          setHasJoinedRace(true);
+          hasJoinedRef.current = true;
+          
+          // Reset any error states
+          setErrorState(null);
+        } catch (error) {
+          console.error("[Race Rejoin] Error processing rejoin_approved:", error);
+          // Fallback: still clear the awaiting state to prevent UI lock
+          setIsAwaitingRejoinApproval(false);
+          // Try to fetch fresh race data as fallback
+          fetchRaceData();
+        }
         break;
       case "rejoin_rejected":
         // Host rejected our rejoin request
+        setIsAwaitingRejoinApproval(false);
         toast.error(message.message || "Host rejected your rejoin request", { duration: 5000 });
         setLocation("/multiplayer");
         break;
@@ -1910,10 +2047,12 @@ export default function RacePage() {
         // Phase 7: Server detected duplicate connection from same identity
         console.warn("[Race Multi-tab] Connection superseded by another session");
         setIsMultiTabBlocked(true);
-        toast.error("Session taken over", {
-          description: message.message || "Another session connected with your account",
-          duration: 5000,
-        });
+        if (canShowToast("connection_superseded", 8000)) {
+          toast.error("Session taken over", {
+            description: message.message || "Another session connected with your account",
+            duration: 5000,
+          });
+        }
         // Don't try to reconnect - the other tab is authoritative
         reconnectAttempts.current = maxReconnectAttempts; // Prevent auto-reconnect
         break;
@@ -1921,6 +2060,17 @@ export default function RacePage() {
       case "error":
         // Handle server-side errors with typed error codes
         switch (message.code) {
+          case "IP_LIMIT_EXCEEDED":
+            blockReconnect(message.message, 60);
+            reconnectAttempts.current = maxReconnectAttempts;
+            setIsReconnecting(false);
+            if (canShowToast("ip_limit_exceeded", 10000)) {
+              toast.error("Connection limit reached", {
+                description: message.message || "Please wait before reconnecting",
+                duration: 5000,
+              });
+            }
+            break;
           case "CHAT_RATE_LIMITED":
             toast.error("Slow down!", {
               description: message.message || "Please wait before sending another message",
@@ -2238,6 +2388,7 @@ export default function RacePage() {
     if (race?.status === "waiting" && !isRacing) {
       // Clean up and navigate directly
       if (myParticipant && race) {
+        hasLeftRef.current = true; // Prevent cleanup from sending duplicate leave
         sendWsMessage({
           type: "leave",
           raceId: race.id,
@@ -2265,6 +2416,7 @@ export default function RacePage() {
 
     try {
       if (myParticipant && race) {
+        hasLeftRef.current = true; // Prevent cleanup from sending duplicate leave
         // Send leave with current progress for DNF tracking
         sendWsMessage({
           type: "leave",
@@ -2317,6 +2469,39 @@ export default function RacePage() {
         message={loadingMessage}
         subMessage="Connecting to race server..."
       />
+    );
+  }
+
+  // Handle awaiting rejoin approval state
+  if (isAwaitingRejoinApproval) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-6 max-w-md mx-auto p-6">
+          <div className="relative">
+            <div className="h-20 w-20 mx-auto rounded-full border-4 border-amber-500/20 border-t-amber-500 animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <User className="h-8 w-8 text-amber-500 animate-pulse" />
+            </div>
+          </div>
+          <div className="space-y-3">
+            <p className="text-2xl font-bold text-amber-400">Waiting for Host Approval</p>
+            <p className="text-muted-foreground">
+              You were previously removed from this race. Your rejoin request has been sent to the host.
+            </p>
+            <p className="text-sm text-muted-foreground/70">
+              The host will receive a notification and can choose to allow you back into the race.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setLocation("/multiplayer")}
+            className="mt-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Lobby
+          </Button>
+        </div>
+      </div>
     );
   }
 

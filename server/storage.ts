@@ -3789,6 +3789,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async reactivateRaceParticipant(id: number): Promise<RaceParticipant> {
+    // Generate a new joinToken for the reactivated participant
+    // This ensures the client gets a fresh token when they re-fetch race data
+    const sessionSecret = process.env.SESSION_SECRET;
+    if (!sessionSecret) {
+      throw new Error('SECURITY: SESSION_SECRET environment variable is required for race token generation');
+    }
+    
+    const tokenPayload = `${id}:${Date.now()}:${crypto.randomBytes(16).toString('hex')}`;
+    const joinToken = crypto.createHmac('sha256', sessionSecret)
+      .update(tokenPayload)
+      .digest('hex');
+    
     const result = await db
       .update(raceParticipants)
       .set({
@@ -3800,7 +3812,8 @@ export class DatabaseStorage implements IStorage {
         isFinished: 0,
         finishPosition: null,
         finishedAt: null,
-        joinedAt: new Date()
+        joinedAt: new Date(),
+        joinToken, // New token for WebSocket authentication
       })
       .where(eq(raceParticipants.id, id))
       .returning();

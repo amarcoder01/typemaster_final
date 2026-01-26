@@ -52,6 +52,10 @@ interface RejoinRequest {
   username: string;
   ws: WebSocket;
   requestedAt: number;
+  // Additional data needed for seamless rejoin without page reload
+  userId?: string;
+  guestName?: string;
+  avatarColor?: string;
 }
 
 interface ChatMessageCache {
@@ -173,6 +177,10 @@ class RaceWebSocketServer {
   private chatRateLimits: Map<number, number> = new Map();
   private antiCheatStatus: Map<number, { disqualified: boolean; flagged: boolean; reason?: string }> = new Map();
   private speedViolations: Map<number, number> = new Map();
+  
+  // Track participants being processed for leave to prevent double processing
+  // Key: "raceId:participantId", Value: timestamp when leave started
+  private leaveInProgress: Map<string, number> = new Map();
   
   private stats: ServerStats = {
     totalConnections: 0,
@@ -895,6 +903,15 @@ class RaceWebSocketServer {
     
     const timer = setTimeout(async () => {
       this.disconnectCleanupTimers.delete(timerKey);
+      
+      // Multi-tab support: Check if user has reconnected via another tab
+      // If they have active connections, don't remove them
+      if (this.hasActiveConnectionsForParticipant(participantId)) {
+        console.log(`[WS Cleanup] Participant ${participantId} has active connections (likely via another tab), skipping removal`);
+        this.removeDisconnectedPlayer(raceId, participantId);
+        return;
+      }
+      
       const disconnectedMap = this.disconnectedPlayers.get(raceId);
       if (disconnectedMap) {
         const currentInfo = disconnectedMap.get(participantId);
@@ -979,6 +996,43 @@ class RaceWebSocketServer {
     const raceRoom = this.races.get(raceId);
     if (!raceRoom) return false;
     return raceRoom.kickedPlayers.has(participantId);
+  }
+
+  /**
+   * Check if a participant has other active WebSocket connections
+   * Used to prevent premature removal when user has multiple tabs open
+   * @param participantId - The participant ID to check
+   * @param excludeWs - Optional WebSocket to exclude from the count (the disconnecting one)
+   * @returns true if at least one other active connection exists
+   */
+  private hasActiveConnectionsForParticipant(participantId: number, excludeWs?: WebSocket): boolean {
+    // Get the identity key for this participant
+    const identityKey = this.participantIdentityKey.get(participantId);
+    if (!identityKey) {
+      // No identity mapping means no tracked connections
+      return false;
+    }
+
+    // Get all connections for this identity
+    const connections = this.connectionRegistry.get(identityKey);
+    if (!connections || connections.length === 0) {
+      return false;
+    }
+
+    // Count active connections, optionally excluding the specified WebSocket
+    let activeCount = 0;
+    for (const conn of connections) {
+      // Skip the WebSocket we're excluding (the one that's disconnecting)
+      if (excludeWs && conn.ws === excludeWs) {
+        continue;
+      }
+      // Check if WebSocket is still open
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        activeCount++;
+      }
+    }
+
+    return activeCount > 0;
   }
 
   // Broadcast new participant to all connected clients when someone joins via HTTP
@@ -1845,12 +1899,15 @@ class RaceWebSocketServer {
         return;
       }
       
-      // Store the pending rejoin request
+      // Store the pending rejoin request with additional data needed for seamless rejoin
       raceRoom.pendingRejoinRequests.set(participantId, {
         participantId,
         username,
         ws,
-        requestedAt: Date.now()
+        requestedAt: Date.now(),
+        userId: participant.userId ?? undefined,
+        guestName: participant.guestName ?? undefined,
+        avatarColor: participant.avatarColor ?? undefined,
       });
       
       // Notify the kicked player that their request is pending
@@ -2480,22 +2537,82 @@ class RaceWebSocketServer {
       return;
     }
     
-    // Remove from pending requests
-    raceRoom.pendingRejoinRequests.delete(targetParticipantId);
-    
     if (approved) {
       // Note: No maxHumans limit check - if host approves, the player can rejoin
       // Room code joins and host-approved rejoins allow unlimited players
       
+      // Check if the pending request WebSocket is still open BEFORE removing from pending
+      // This ensures we can still access the WebSocket reference
+      if (pendingRequest.ws.readyState !== WebSocket.OPEN) {
+        console.log(`[WS Rejoin] Approved but WebSocket closed for ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
+        // Remove from pending requests since we can't send the message
+        raceRoom.pendingRejoinRequests.delete(targetParticipantId);
+        ws.send(JSON.stringify({
+          type: "rejoin_decision_confirmed",
+          approved: true,
+          targetParticipantId,
+          username: pendingRequest.username,
+          message: `${pendingRequest.username} was approved but their connection closed. They can rejoin manually.`
+        }));
+        return;
+      }
+      
       // Remove from kicked list to allow rejoining
       raceRoom.kickedPlayers.delete(targetParticipantId);
       
-      // Notify the player that they can rejoin
-      if (pendingRequest.ws.readyState === WebSocket.OPEN) {
-        pendingRequest.ws.send(JSON.stringify({
+      // Remove from pending requests AFTER confirming WebSocket is open
+      raceRoom.pendingRejoinRequests.delete(targetParticipantId);
+      
+      // Add user back to raceRoom.clients - seamless rejoin without page reload
+      const client: RaceClient = {
+        ws: pendingRequest.ws,
+        raceId,
+        participantId: targetParticipantId,
+        username: pendingRequest.username,
+        lastActivity: Date.now(),
+        isReady: false, // Reset ready state on rejoin
+        isBot: false,
+      };
+      raceRoom.clients.set(targetParticipantId, client);
+      
+      // Update connection registry for the rejoining user
+      this.updateConnectionInfo(pendingRequest.ws, raceId, targetParticipantId);
+      (pendingRequest.ws as any).authenticatedParticipantId = targetParticipantId;
+      (pendingRequest.ws as any).authenticatedRaceId = raceId;
+      
+      // Add to Redis if enabled
+      if (REDIS_ENABLED) {
+        redisClient.sadd(REDIS_KEYS.raceConnections(raceId), targetParticipantId.toString()).catch(() => {});
+        redisClient.expire(REDIS_KEYS.raceConnections(raceId), REDIS_TTL.raceConnections).catch(() => {});
+      }
+      
+      // Get current race state to send to the rejoining user
+      const participants = cachedRace?.participants || [];
+      const race = cachedRace?.race;
+      
+      // Send rejoin_approved with full race state - no page reload needed
+      // Wrap in try-catch to handle any send errors gracefully
+      try {
+        const rejoinMessage = {
           type: "rejoin_approved",
-          message: "Host has approved your rejoin request. Reconnecting..."
-        }));
+          message: "Host has approved your rejoin request",
+          race,
+          participants,
+          hostParticipantId: raceRoom.hostParticipantId,
+          chatHistory: raceRoom.chatHistory || [],
+          isRoomLocked: raceRoom.isLocked || false,
+        };
+        
+        // Double-check WebSocket is still open before sending
+        if (pendingRequest.ws.readyState === WebSocket.OPEN) {
+          pendingRequest.ws.send(JSON.stringify(rejoinMessage));
+          console.log(`[WS Rejoin] Successfully sent rejoin_approved to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
+        } else {
+          console.error(`[WS Rejoin] WebSocket closed before sending rejoin_approved to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
+        }
+      } catch (error) {
+        console.error(`[WS Rejoin] Failed to send rejoin_approved to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}:`, error);
+        // Even if send fails, the user is already added to clients, so they can reconnect and get the state
       }
       
       // Notify host of success
@@ -2504,35 +2621,57 @@ class RaceWebSocketServer {
         approved: true,
         targetParticipantId,
         username: pendingRequest.username,
-        message: `${pendingRequest.username} has been allowed to rejoin`
+        message: `${pendingRequest.username} has rejoined the race`
       }));
       
-      // Broadcast to room that player was allowed to rejoin
-      this.broadcastToRace(raceId, {
-        type: "player_rejoin_allowed",
-        participantId: targetParticipantId,
-        username: pendingRequest.username,
-        message: `${pendingRequest.username} has been allowed to rejoin by the host`
-      });
+      // Get the participant data for the rejoining user
+      const rejoiningParticipant = participants.find(p => p.id === targetParticipantId);
       
-      console.log(`[WS Rejoin] Host approved rejoin for ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
+      // Broadcast to OTHER clients that this player rejoined (exclude the rejoining user)
+      for (const [clientParticipantId, c] of raceRoom.clients.entries()) {
+        if (clientParticipantId !== targetParticipantId && c.ws.readyState === WebSocket.OPEN) {
+          c.ws.send(JSON.stringify({
+            type: "participant_joined",
+            participant: rejoiningParticipant,
+            participants,
+            hostParticipantId: raceRoom.hostParticipantId,
+            message: `${pendingRequest.username} has rejoined the race`
+          }));
+        }
+      }
+      
+      console.log(`[WS Rejoin] Host approved and seamlessly rejoined ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
     } else {
       // Host rejected the rejoin request
+      // Remove from pending requests
+      raceRoom.pendingRejoinRequests.delete(targetParticipantId);
+      
       if (pendingRequest.ws.readyState === WebSocket.OPEN) {
-        pendingRequest.ws.send(JSON.stringify({
-          type: "rejoin_rejected",
-          message: "Host has rejected your rejoin request"
-        }));
+        try {
+          pendingRequest.ws.send(JSON.stringify({
+            type: "rejoin_rejected",
+            message: "Host has rejected your rejoin request"
+          }));
+          console.log(`[WS Rejoin] Successfully sent rejoin_rejected to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
+        } catch (error) {
+          console.error(`[WS Rejoin] Failed to send rejoin_rejected to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}:`, error);
+        }
+      } else {
+        console.log(`[WS Rejoin] WebSocket closed, cannot send rejoin_rejected to ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
       }
       
       // Notify host of success
-      ws.send(JSON.stringify({
-        type: "rejoin_decision_confirmed",
-        approved: false,
-        targetParticipantId,
-        username: pendingRequest.username,
-        message: `${pendingRequest.username}'s rejoin request has been rejected`
-      }));
+      try {
+        ws.send(JSON.stringify({
+          type: "rejoin_decision_confirmed",
+          approved: false,
+          targetParticipantId,
+          username: pendingRequest.username,
+          message: `${pendingRequest.username}'s rejoin request has been rejected`
+        }));
+      } catch (error) {
+        console.error(`[WS Rejoin] Failed to send rejoin_decision_confirmed to host in race ${raceId}:`, error);
+      }
       
       console.log(`[WS Rejoin] Host rejected rejoin for ${pendingRequest.username} (${targetParticipantId}) in race ${raceId}`);
     }
@@ -3336,6 +3475,16 @@ class RaceWebSocketServer {
 
   private async handleLeave(ws: WebSocket, message: any) {
     const { raceId, participantId, isRacing, progress, errors } = message;
+    
+    // Idempotency: Prevent double processing of leave for the same participant
+    // This can happen when both WS disconnect and HTTP sendBeacon trigger leave
+    const leaveKey = `${raceId}:${participantId}`;
+    const leaveStarted = this.leaveInProgress.get(leaveKey);
+    if (leaveStarted) {
+      console.log(`[WS Leave] Skipping duplicate leave for participant ${participantId} in race ${raceId} (started ${Date.now() - leaveStarted}ms ago)`);
+      return;
+    }
+    this.leaveInProgress.set(leaveKey, Date.now());
 
     try {
       await raceCache.flushParticipantProgress(participantId);
@@ -3501,6 +3650,7 @@ class RaceWebSocketServer {
         // Don't clean up if race is finishing
         if (raceRoom.isFinishing) {
           console.log(`[WS Leave] Keeping race room ${raceId} alive - race is finishing`);
+          this.leaveInProgress.delete(leaveKey);
           this.updateStats();
           return;
         }
@@ -3508,6 +3658,7 @@ class RaceWebSocketServer {
         // Don't clean up if timed race timer is active
         if (raceRoom.timedRaceTimer) {
           console.log(`[WS Leave] Keeping race room ${raceId} alive - timed race timer active`);
+          this.leaveInProgress.delete(leaveKey);
           this.updateStats();
           return;
         }
@@ -3521,6 +3672,8 @@ class RaceWebSocketServer {
       }
     }
 
+    // Clean up leave tracking
+    this.leaveInProgress.delete(leaveKey);
     this.updateStats();
   }
 
@@ -4952,6 +5105,15 @@ NEVER sound like AI. No "I'd be happy to" or formal language.`
       const clientsToCheck = Array.from(raceRoom.clients.entries());
       for (const [participantId, client] of clientsToCheck) {
         if (client.ws === ws) {
+          // Multi-tab support: Check if user has other active connections for this participant
+          // If so, don't remove them from the race - just close this specific socket
+          if (this.hasActiveConnectionsForParticipant(participantId, ws)) {
+            console.log(`[WS Disconnect] Participant ${participantId} has other active connections, skipping removal from race ${raceId}`);
+            // Just remove this specific client entry but don't broadcast disconnect or schedule cleanup
+            raceRoom.clients.delete(participantId);
+            continue;
+          }
+          
           try {
             await raceCache.flushParticipantProgress(participantId);
           } catch (error) {

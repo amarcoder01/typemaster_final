@@ -15,21 +15,35 @@ import { toast } from "sonner";
 import { AuthPrompt } from "@/components/auth-prompt";
 
 // Error codes for specific error handling
-type MultiplayerErrorCode = "NETWORK_ERROR" | "ROOM_FULL" | "ROOM_NOT_FOUND" | "ROOM_STARTED" | "INVALID_CODE" | "SERVER_ERROR";
+type MultiplayerErrorCode = "NETWORK_ERROR" | "ROOM_FULL" | "ROOM_NOT_FOUND" | "ROOM_STARTED" | "INVALID_CODE" | "SERVER_ERROR" | "KICKED_FROM_RACE" | "ROOM_LOCKED";
 
 interface MultiplayerError {
   code: MultiplayerErrorCode;
   message: string;
+  canRequestRejoin?: boolean;
 }
 
 // Helper to parse error responses
-function parseErrorResponse(response: Response, data: { message?: string; code?: string }): MultiplayerError {
+function parseErrorResponse(response: Response, data: { message?: string; code?: string; canRequestRejoin?: boolean }): MultiplayerError {
   if (!navigator.onLine) {
     return { code: "NETWORK_ERROR", message: "You appear to be offline. Please check your internet connection." };
   }
 
   if (response.status === 404) {
     return { code: "ROOM_NOT_FOUND", message: data.message || "Room not found. Check the code and try again." };
+  }
+
+  if (response.status === 403) {
+    if (data.code === "KICKED_FROM_RACE") {
+      return { 
+        code: "KICKED_FROM_RACE", 
+        message: "You were removed from this race by the host.",
+        canRequestRejoin: data.canRequestRejoin 
+      };
+    }
+    if (data.code === "ROOM_LOCKED") {
+      return { code: "ROOM_LOCKED", message: "This room is locked. The host has disabled new players from joining." };
+    }
   }
 
   if (response.status === 409) {
@@ -54,6 +68,8 @@ function getErrorIcon(code: MultiplayerErrorCode) {
     case "NETWORK_ERROR": return <WifiOff className="h-4 w-4" />;
     case "ROOM_FULL": return <Users className="h-4 w-4" />;
     case "ROOM_NOT_FOUND": return <AlertTriangle className="h-4 w-4" />;
+    case "KICKED_FROM_RACE": return <User className="h-4 w-4 text-red-500" />;
+    case "ROOM_LOCKED": return <Lock className="h-4 w-4" />;
     default: return <AlertTriangle className="h-4 w-4" />;
   }
 }
@@ -346,19 +362,48 @@ export default function MultiplayerPage() {
       });
 
       if (response.ok) {
-        const { race, participant } = await response.json();
+        const data = await response.json();
+        const { race, participant, kicked, message } = data;
         localStorage.setItem(`race_${race.id}_participant`, JSON.stringify(participant));
-        toast.success("Joined room! Waiting for race to start...", {
-          icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-        });
+        
+        if (kicked) {
+          // User was kicked but can request to rejoin
+          // Navigate to race page where WebSocket will handle rejoin request
+          toast.info(message || "Sending rejoin request to host...", {
+            icon: <User className="h-4 w-4 text-amber-500" />,
+            description: "Please wait for the host to approve your request.",
+            duration: 5000,
+          });
+        } else {
+          toast.success("Joined room! Waiting for race to start...", {
+            icon: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+          });
+        }
         setLocation(`/race/${race.id}`);
       } else {
         const errorData = await response.json().catch(() => ({}));
         const error = parseErrorResponse(response, errorData);
-        toast.error(error.message, {
-          icon: getErrorIcon(error.code),
-          description: error.code === "ROOM_NOT_FOUND" ? "Double-check the room code" : undefined,
-        });
+        
+        if (error.code === "KICKED_FROM_RACE") {
+          // Special handling for kicked users
+          if (error.canRequestRejoin) {
+            toast.error(error.message, {
+              icon: getErrorIcon(error.code),
+              description: "You can request to rejoin. The host will be notified.",
+              duration: 5000,
+            });
+          } else {
+            toast.error(error.message, {
+              icon: getErrorIcon(error.code),
+              description: "The race is no longer in waiting state. You cannot rejoin.",
+            });
+          }
+        } else {
+          toast.error(error.message, {
+            icon: getErrorIcon(error.code),
+            description: error.code === "ROOM_NOT_FOUND" ? "Double-check the room code" : undefined,
+          });
+        }
       }
     } catch (error) {
       toast.error("Unable to connect to the game server", {

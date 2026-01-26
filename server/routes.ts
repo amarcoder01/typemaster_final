@@ -3041,8 +3041,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Add bot opponents after setting the creator
       console.log(`[Quick Match] Adding ${effectiveBotCount} bot opponents to race ${race.id}...`);
       try {
-        const addedOpponents = await botService.addBotsToRace(race.id, effectiveBotCount);
+        const { botRetryService } = await import("./bot-retry-service");
+        const result = await botRetryService.addBotsToRaceWithRetry(race.id, effectiveBotCount);
+        const addedOpponents = result.successful;
         console.log(`[Quick Match] Added ${addedOpponents.length} bot opponents to race ${race.id}`);
+        if (result.totalFailed > 0) {
+          console.warn(`[Quick Match] ${result.totalFailed}/${result.totalRequested} bots failed to join race ${race.id}`);
+        }
       } catch (opponentError: any) {
         console.error(`[Quick Match] Failed to add opponents to race ${race.id}:`, opponentError);
       }
@@ -3228,8 +3233,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isPrivate) {
         console.log(`[Create Room] Adding ${botCount} opponents to race ${race.id}...`);
         try {
-          const addedOpponents = await botService.addBotsToRace(race.id, botCount);
+          const { botRetryService } = await import("./bot-retry-service");
+          const result = await botRetryService.addBotsToRaceWithRetry(race.id, botCount);
+          const addedOpponents = result.successful;
           console.log(`[Create Room] Added ${addedOpponents.length} opponents to race ${race.id}`);
+          if (result.totalFailed > 0) {
+            console.warn(`[Create Room] ${result.totalFailed}/${result.totalRequested} bots failed to join race ${race.id}`);
+          }
         } catch (opponentError: any) {
           console.error(`[Create Room] Failed to add opponents to race ${race.id}:`, opponentError);
         }
@@ -3277,15 +3287,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const avatarColor = user?.avatarColor || "bg-primary";
 
-      const idempotencyKey = makeRequestIdempotencyKey(req, "races:join", {
-        roomCode: roomCode.toUpperCase(),
-        userId: user?.id,
-        guestId: user ? undefined : guestId,
-      });
-      const idempotencyCheck = await checkIdempotencyDistributed(idempotencyKey);
-      if (idempotencyCheck.isDuplicate && idempotencyCheck.cachedResponse) {
-        return res.json(idempotencyCheck.cachedResponse);
-      }
+      // NOTE: Idempotency is DISABLED for room code joins
+      // When a user leaves and rejoins, the cached response would return stale participant data
+      // This caused "Invalid participant" errors because the cached participant was deactivated
+      // Each join must be processed fresh to handle reactivation correctly
 
       const race = await storage.getRaceByCode(roomCode.toUpperCase());
       if (!race) {
@@ -3324,6 +3329,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[Join Room] Allowing existing participant to rejoin locked room ${race.id}`);
       }
 
+      // Check if user was kicked from this race
+      // If kicked during waiting, allow them to proceed to race page where WebSocket will handle rejoin request
+      // The WebSocket handleJoin will detect kicked status and send rejoin request to host
+      const existingActiveParticipant = (await storage.getRaceParticipants(race.id)).find(p =>
+        (user && p.userId === user.id) || (!user && p.guestName === guestId)
+      );
+      const existingInactiveParticipant = await storage.findInactiveParticipant(race.id, user?.id, guestId);
+      
+      const participantToCheck = existingActiveParticipant || existingInactiveParticipant;
+      if (participantToCheck && raceWebSocket.isParticipantKicked(race.id, participantToCheck.id)) {
+        console.log(`[Join Room] Kicked user ${username} (${participantToCheck.id}) attempting to rejoin race ${race.id}`);
+        
+        // If race is not in waiting state, reject completely
+        if (race.status !== "waiting") {
+          return res.status(403).json({
+            message: "Cannot rejoin - the race has already started or finished.",
+            code: "KICKED_FROM_RACE",
+            canRequestRejoin: false
+          });
+        }
+        
+        // For waiting races, return the participant data so they can connect via WebSocket
+        // The WebSocket will handle the rejoin request flow
+        let participant = existingActiveParticipant;
+        if (!participant && existingInactiveParticipant) {
+          // Reactivate the participant so they can connect
+          participant = await storage.reactivateRaceParticipant(existingInactiveParticipant.id);
+          
+          // Update cache with reactivated participant
+          const updatedParticipants = await storage.getRaceParticipants(race.id);
+          const { raceCache } = await import("./race-cache");
+          raceCache.updateParticipants(race.id, updatedParticipants, race);
+          console.log(`[Join Room] Reactivated kicked participant ${username} (${participant.id}) for rejoin request flow`);
+        }
+        
+        if (participant) {
+          // Return participant data with kicked flag so client knows to expect rejoin request flow
+          return res.json({
+            race,
+            participant,
+            kicked: true,
+            message: "You were removed from this race. A rejoin request will be sent to the host."
+          });
+        }
+      }
+
       const participants = await storage.getRaceParticipants(race.id);
 
       let participant = participants.find(p => {
@@ -3342,6 +3393,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (inactive) {
           participant = await storage.reactivateRaceParticipant(inactive.id);
+          
+          // CRITICAL: Update cache and broadcast for reactivated participant
+          // Same as new participant flow - ensures WebSocket can find them and all clients see them
+          const { raceCache } = await import("./race-cache");
+          const updatedParticipants = await storage.getRaceParticipants(race.id);
+          raceCache.updateParticipants(race.id, updatedParticipants, race);
+          console.log(`[Join Room] Reactivated participant ${username} (${participant.id})`);
+
+          const { raceWebSocket } = await import("./websocket");
+          raceWebSocket.broadcastNewParticipant(race.id, participant, updatedParticipants);
+          console.log(`[Join Room] Broadcast reactivated participant to existing WebSocket clients`);
         } else {
           // Check if race is full (total players)
           let removedBotId: number | null = null;
@@ -3400,7 +3462,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const responseData = { race, participant };
-      await storeIdempotencyDistributed(idempotencyKey, responseData);
       res.json(responseData);
     } catch (error: any) {
       console.error("Join race error:", error);
