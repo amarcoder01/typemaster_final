@@ -76,7 +76,8 @@ export class EloRatingService {
 
   private calculateMultiplayerScore(position: number, totalPlayers: number): number {
     if (totalPlayers < 2) return 0.5;
-    return (totalPlayers - position) / (totalPlayers - 1);
+    const safePosition = Math.min(Math.max(1, position), totalPlayers);
+    return (totalPlayers - safePosition) / (totalPlayers - 1);
   }
 
   async processRaceResults(raceId: number, results: RaceResult[]): Promise<RatingChange[]> {
@@ -113,6 +114,36 @@ export class EloRatingService {
 
     const totalPlayers = playerResults.length;
     const avgRating = Array.from(playerRatings.values()).reduce((sum, r) => sum + r.rating, 0) / totalPlayers;
+    const rankedResults = [...playerResults]
+      .map(result => ({
+        ...result,
+        normalizedPosition: Number.isFinite(result.position) ? Math.max(1, result.position) : 999,
+      }))
+      .sort((a, b) => {
+        if (a.normalizedPosition !== b.normalizedPosition) {
+          return a.normalizedPosition - b.normalizedPosition;
+        }
+        return a.participantId - b.participantId;
+      });
+
+    const effectivePositions = new Map<string, number>();
+    let rank = 1;
+    let lastPosition: number | null = null;
+    for (let i = 0; i < rankedResults.length; i++) {
+      const result = rankedResults[i];
+      if (!result.userId) continue;
+
+      if (result.normalizedPosition >= 999) {
+        effectivePositions.set(result.userId, totalPlayers);
+        continue;
+      }
+
+      if (lastPosition === null || result.normalizedPosition !== lastPosition) {
+        rank = i + 1;
+        lastPosition = result.normalizedPosition;
+      }
+      effectivePositions.set(result.userId, Math.min(rank, totalPlayers));
+    }
 
     for (const result of playerResults) {
       if (!result.userId) continue;
@@ -120,7 +151,8 @@ export class EloRatingService {
       const playerRating = playerRatings.get(result.userId);
       if (!playerRating) continue;
 
-      const actualScore = this.calculateMultiplayerScore(result.position, totalPlayers);
+      const effectivePosition = effectivePositions.get(result.userId) ?? totalPlayers;
+      const actualScore = this.calculateMultiplayerScore(effectivePosition, totalPlayers);
       
       let expectedScore = 0;
       const entries = Array.from(playerRatings.entries());

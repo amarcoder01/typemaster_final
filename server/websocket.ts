@@ -543,32 +543,40 @@ class RaceWebSocketServer {
       this.cleanupExtensionState(raceId);
       
       // Sort results by position
-      const sortedResults = participants.sort((a, b) => (a.finishPosition || 999) - (b.finishPosition || 999));
-      
-      // Enrich results with ratings (error won't stop completion)
-      let enrichedResults;
-      try {
-        enrichedResults = await this.enrichResultsWithRatings(sortedResults);
-      } catch (error) {
-        console.error(`[Race Complete] Rating enrichment failed:`, error);
-        enrichedResults = sortedResults;
-      }
-      
-      // Create certificates (error won't stop completion)
-      let certificates: Record<number, string> = {};
-      try {
-        certificates = await this.createRaceCertificates(raceId, sortedResults);
-      } catch (error) {
-        console.error(`[Race Complete] Certificate creation failed:`, error);
-        // Continue without certificates
-      }
-      
-      // Broadcast results - critical path
-      console.log(`[Race Complete] Broadcasting race_finished for race ${raceId} with ${enrichedResults.length} results`);
+      const sortedResults = [...participants].sort((a, b) => (a.finishPosition || 999) - (b.finishPosition || 999));
+
+      // Broadcast results quickly (no enrichment/certificates on critical path)
+      console.log(`[Race Complete] Broadcasting race_finished for race ${raceId} with ${sortedResults.length} results`);
       this.broadcastToRace(raceId, {
         type: "race_finished",
-        results: enrichedResults,
-        certificates,
+        results: sortedResults,
+        certificates: {},
+      });
+
+      // Enrich results and certificates asynchronously to avoid UI delays
+      (async () => {
+        let enrichedResults: any[] = sortedResults;
+        try {
+          enrichedResults = await this.enrichResultsWithRatings(sortedResults);
+          this.broadcastToRace(raceId, {
+            type: "race_results_enriched",
+            results: enrichedResults,
+          });
+        } catch (error) {
+          console.error(`[Race Complete] Rating enrichment failed:`, error);
+        }
+
+        try {
+          const certificates = await this.createRaceCertificates(raceId, sortedResults);
+          this.broadcastToRace(raceId, {
+            type: "race_certificates",
+            certificates,
+          });
+        } catch (error) {
+          console.error(`[Race Complete] Certificate creation failed:`, error);
+        }
+      })().catch(err => {
+        console.error(`[Race Complete] Post-broadcast enrichment failed:`, err);
       });
       
       // Trigger post-race bot chat
@@ -3438,19 +3446,37 @@ class RaceWebSocketServer {
     botService.stopAllBotsInRace(raceId, freshParticipants);
     this.cleanupExtensionState(raceId);
     
-    const sortedResults = freshParticipants.sort((a, b) => (a.finishPosition || 999) - (b.finishPosition || 999));
-    
-    const enrichedResults = await this.enrichResultsWithRatings(sortedResults);
-    
-    // Create certificates BEFORE broadcasting so we can include verification IDs
-    const certificates = await this.createRaceCertificates(raceId, sortedResults);
-    
+    const sortedResults = [...freshParticipants].sort((a, b) => (a.finishPosition || 999) - (b.finishPosition || 999));
+
     console.log(`[Bot Finish] Broadcasting race_finished for race ${raceId}`);
-    
     this.broadcastToRace(raceId, {
       type: "race_finished",
-      results: enrichedResults,
-      certificates,
+      results: sortedResults,
+      certificates: {},
+    });
+
+    (async () => {
+      try {
+        const enrichedResults = await this.enrichResultsWithRatings(sortedResults);
+        this.broadcastToRace(raceId, {
+          type: "race_results_enriched",
+          results: enrichedResults,
+        });
+      } catch (error) {
+        console.error(`[Bot Finish] Rating enrichment failed:`, error);
+      }
+
+      try {
+        const certificates = await this.createRaceCertificates(raceId, sortedResults);
+        this.broadcastToRace(raceId, {
+          type: "race_certificates",
+          certificates,
+        });
+      } catch (error) {
+        console.error(`[Bot Finish] Certificate creation failed:`, error);
+      }
+    })().catch(err => {
+      console.error(`[Bot Finish] Post-broadcast enrichment failed:`, err);
     });
     
     this.processRaceCompletion(raceId, sortedResults).catch(err => {

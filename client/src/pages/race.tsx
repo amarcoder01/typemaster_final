@@ -1699,6 +1699,11 @@ export default function RacePage() {
             .catch(err => console.error("Failed to fetch rating:", err));
         }
         break;
+      case "race_results_enriched":
+        if (Array.isArray(message.results)) {
+          setParticipants(message.results);
+        }
+        break;
       case "participant_left":
         setParticipants(prev => prev.filter(p => p.id !== message.participantId));
         // Add system message to chat (username may be included in message)
