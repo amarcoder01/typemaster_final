@@ -62,12 +62,12 @@ function UnifiedLeaderboardContent() {
   const config = getModeConfig(mode);
   const ModeIcon = config.icon;
 
-  // Initialize filters with defaults when mode changes
+  // Initialize filters with defaults when mode changes - always reset to defaults
   useEffect(() => {
     const newFilters: Record<string, string> = {};
     config.filters.forEach((filter) => {
-      const urlValue = searchParams.get(filter.key);
-      newFilters[filter.key] = urlValue || filter.defaultValue || "all";
+      // Always use default value when switching modes to prevent filter persistence
+      newFilters[filter.key] = filter.defaultValue || "all";
     });
     setFilters(newFilters);
     setOffset(0);
@@ -323,6 +323,7 @@ function UnifiedLeaderboardContent() {
           <LeaderboardTable
             mode={mode}
             entries={entries}
+            filters={filters}
             pagination={pagination}
             isLoading={isLoading}
             isFetching={isFetching}

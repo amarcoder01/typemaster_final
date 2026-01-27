@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Globe, Code, HelpCircle, Filter, Clock } from "lucide-react";
+import { Globe, Code, HelpCircle, Filter, Clock, Flame } from "lucide-react";
 import { 
   type LeaderboardMode,
   type LeaderboardFilter,
@@ -45,20 +45,7 @@ export function LeaderboardFilters({ mode, filters, onFilterChange }: Leaderboar
     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-wrap w-full">
       {config.filters.map((filter: LeaderboardFilter) => (
         <div key={filter.key} className="flex items-center gap-2 w-full sm:w-auto">
-          {filter.key === "timeframe" ? (
-            <SearchableSelect
-              value={filters[filter.key] || filter.defaultValue || "all"}
-              onValueChange={(v) => onFilterChange(filter.key, v)}
-              options={filter.options}
-              placeholder="Select period"
-              searchPlaceholder="Search period..."
-              emptyText="No period found."
-              icon={<Clock className="w-4 h-4" />}
-              triggerClassName="w-full sm:w-[200px]"
-              contentClassName="max-h-[300px] overflow-y-auto"
-              data-testid={`filter-${filter.key}-dropdown`}
-            />
-          ) : filter.type === "tabs" ? (
+          {filter.type === "tabs" ? (
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Tabs 
                 value={filters[filter.key] || filter.defaultValue || "all"} 
@@ -88,6 +75,19 @@ export function LeaderboardFilters({ mode, filters, onFilterChange }: Leaderboar
                 </TabsList>
               </Tabs>
             </div>
+          ) : filter.key === "difficulty" ? (
+            <SearchableSelect
+              value={filters[filter.key] || filter.defaultValue || "all"}
+              onValueChange={(v) => onFilterChange(filter.key, v)}
+              options={filter.options}
+              placeholder="Select difficulty"
+              searchPlaceholder="Search difficulty..."
+              emptyText="No difficulty found."
+              icon={<Flame className="w-4 h-4" />}
+              triggerClassName="w-full sm:w-[260px] min-w-0"
+              contentClassName="max-h-[300px] overflow-y-auto min-w-[260px]"
+              data-testid={`filter-${filter.key}-dropdown`}
+            />
           ) : (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
               <SearchableSelect
@@ -97,7 +97,7 @@ export function LeaderboardFilters({ mode, filters, onFilterChange }: Leaderboar
                 placeholder={`Select ${filter.label}`}
                 searchPlaceholder={`Search ${filter.label.toLowerCase()}...`}
                 emptyText={`No ${filter.label.toLowerCase()} found.`}
-                icon={getFilterIcon(filter.key, mode)}
+                icon={filter.key === "timeframe" ? <Clock className="w-4 h-4" /> : getFilterIcon(filter.key, mode)}
                 triggerClassName={mode === "code" ? "w-full sm:w-[280px]" : "w-full sm:w-[180px]"}
                 contentClassName="max-h-[300px] overflow-y-auto"
                 data-testid={`filter-${filter.key}`}

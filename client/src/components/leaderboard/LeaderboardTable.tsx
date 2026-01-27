@@ -27,13 +27,16 @@ import {
   getModeConfig,
   formatTestMode,
   getTierColor,
+  PROGRAMMING_LANGUAGE_OPTIONS,
 } from "@/lib/leaderboard-config";
+import { getSpeedLevelName } from "@shared/dictation-utils";
 import { RankBadge } from "./RankBadge";
 import { LeaderboardSkeleton } from "./LeaderboardSkeleton";
 
 interface LeaderboardTableProps {
   mode: LeaderboardMode;
   entries: any[];
+  filters?: Record<string, string>;
   pagination: {
     total: number;
     limit: number;
@@ -72,18 +75,24 @@ function CellContent({
 }) {
   switch (columnKey) {
     case "wpm":
+      const wpmValue = entry.wpm || 0;
       return (
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex flex-col items-center cursor-help">
-              <div className="font-mono font-bold text-primary text-lg md:text-xl tabular-nums">
-                {entry.wpm}
+              <div className={cn(
+                "font-mono font-bold tabular-nums",
+                mode === "rating" ? "text-primary text-sm md:text-base" : "text-primary text-lg md:text-xl"
+              )}>
+                {wpmValue > 0 ? wpmValue : "-"}
               </div>
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            <p className="font-medium">{entry.wpm} words per minute</p>
-            <p className="text-xs text-muted-foreground">Raw typing speed</p>
+            <p className="font-medium">{wpmValue > 0 ? `${wpmValue} words per minute` : "No WPM data yet"}</p>
+            <p className="text-xs text-muted-foreground">
+              {mode === "rating" ? "Average race speed" : "Raw typing speed"}
+            </p>
           </TooltipContent>
         </Tooltip>
       );
@@ -179,9 +188,12 @@ function CellContent({
       );
 
     case "speedLevel":
+      // Convert numeric speed (0.8, 1.0, 1.5) to friendly name (Slow, Medium, Fast)
+      const speedValue = parseFloat(entry.speedLevel) || 1.0;
+      const speedName = getSpeedLevelName(speedValue);
       return (
         <Badge variant="outline" className="capitalize">
-          {entry.speedLevel}
+          {speedName}
         </Badge>
       );
 
@@ -214,6 +226,7 @@ function CellContent({
 export function LeaderboardTable({
   mode,
   entries,
+  filters,
   pagination,
   isLoading,
   isFetching,
@@ -290,6 +303,11 @@ export function LeaderboardTable({
   // Empty State
   if (entries.length === 0) {
     const ModeIcon = config.icon;
+    const isTrulyEmpty = pagination.total === 0;
+    const selectedLanguage = mode === "code" ? filters?.language : undefined;
+    const languageLabel = selectedLanguage && selectedLanguage !== "all"
+      ? PROGRAMMING_LANGUAGE_OPTIONS.find((option) => option.value === selectedLanguage)?.label
+      : undefined;
     return (
       <Card className="border-border/50 bg-card/40 backdrop-blur-xl overflow-hidden shadow-lg">
         <CardContent className="p-0">
@@ -306,9 +324,15 @@ export function LeaderboardTable({
               )}>
                 <ModeIcon className={cn("w-10 h-10", config.color)} />
               </div>
-              <p className="text-2xl font-bold mb-2 text-foreground">No results yet</p>
+              <p className="text-2xl font-bold mb-2 text-foreground">
+                {isTrulyEmpty ? "No results yet" : "No results for this filter"}
+              </p>
               <p className="text-base max-w-sm mx-auto">
-                Be the first to set a record in {config.label}!
+                {isTrulyEmpty
+                  ? (languageLabel
+                    ? `Be the first to set a record in ${languageLabel} ${config.label}!`
+                    : `Be the first to set a record in ${config.label}!`)
+                  : "Try adjusting your filters."}
               </p>
             </div>
           </div>
@@ -325,13 +349,17 @@ export function LeaderboardTable({
           className="hidden md:grid gap-4 p-3 md:p-4 bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-white/5"
           style={{ 
             gridTemplateColumns: config.columns.map(col => {
-              if (col.width === "flex-1") return "1fr";
-              if (col.width === "w-12") return "3rem";
-              if (col.width === "w-16") return "4rem";
-              if (col.width === "w-20") return "minmax(5rem, auto)";
-              if (col.width === "w-24") return "6rem";
-              if (col.width === "w-28") return "7rem";
-              if (col.width === "w-32") return "8rem";
+              // Extract base width class (handle responsive like "w-12 sm:w-16")
+              const baseWidth = col.width?.split(' ')[0] || col.width;
+              if (baseWidth === "flex-1" || col.width?.includes("flex-1")) return "1fr";
+              if (baseWidth === "w-10") return "2.5rem";
+              if (baseWidth === "w-12") return "3rem";
+              if (baseWidth === "w-14") return "3.5rem";
+              if (baseWidth === "w-16") return "4rem";
+              if (baseWidth === "w-20") return "5rem";
+              if (baseWidth === "w-24") return "6rem";
+              if (baseWidth === "w-28") return "7rem";
+              if (baseWidth === "w-32") return "8rem";
               return "auto";
             }).join(" ") 
           }}
@@ -385,13 +413,17 @@ export function LeaderboardTable({
                 )}
                 style={{ 
                   gridTemplateColumns: config.columns.map(col => {
-                    if (col.width === "flex-1") return "1fr";
-                    if (col.width === "w-12") return "3rem";
-                    if (col.width === "w-16") return "4rem";
-                    if (col.width === "w-20") return "minmax(5rem, auto)";
-                    if (col.width === "w-24") return "6rem";
-                    if (col.width === "w-28") return "7rem";
-                    if (col.width === "w-32") return "8rem";
+                    // Extract base width class (handle responsive like "w-12 sm:w-16")
+                    const baseWidth = col.width?.split(' ')[0] || col.width;
+                    if (baseWidth === "flex-1" || col.width?.includes("flex-1")) return "1fr";
+                    if (baseWidth === "w-10") return "2.5rem";
+                    if (baseWidth === "w-12") return "3rem";
+                    if (baseWidth === "w-14") return "3.5rem";
+                    if (baseWidth === "w-16") return "4rem";
+                    if (baseWidth === "w-20") return "5rem";
+                    if (baseWidth === "w-24") return "6rem";
+                    if (baseWidth === "w-28") return "7rem";
+                    if (baseWidth === "w-32") return "8rem";
                     return "auto";
                   }).join(" "),
                   animationDelay: `${index * 30}ms`,

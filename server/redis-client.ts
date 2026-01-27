@@ -18,8 +18,9 @@ const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 const REDIS_DB = parseInt(process.env.REDIS_DB || '0', 10);
 const REDIS_TLS = process.env.REDIS_TLS === 'true';
 
-// Check if Redis is enabled (allows fallback to in-memory for development)
-export const REDIS_ENABLED = process.env.REDIS_ENABLED === 'true' || !!process.env.REDIS_HOST;
+// Check if Redis is enabled (explicit opt-in only)
+// Prevents repeated reconnects/timeouts when REDIS_HOST is set but Redis is unavailable.
+export const REDIS_ENABLED = process.env.REDIS_ENABLED === 'true';
 
 // Common Redis configuration
 const baseRedisConfig: RedisOptions = {

@@ -57,7 +57,7 @@ function getTier(rating: number): string {
 /**
  * Generate rating data for a single user
  */
-export function generateUserRating(user: SeedUser): any {
+export function generateUserRating(user: SeedUser): { rating: any; matchHistory: any[] } {
   // Assign user characteristics
   const skillLevel = assignSkillLevel();
   const activityLevel = assignActivityLevel();
@@ -77,32 +77,62 @@ export function generateUserRating(user: SeedUser): any {
   const wins = Math.round(raceCount * winRate);
   const losses = raceCount - wins;
   
+  // Generate fake match history entries (3-8 matches per user for WPM data)
+  const matchCount = Math.min(raceCount, Math.floor(3 + Math.random() * 6));
+  const matchHistory: any[] = [];
+  
+  for (let i = 0; i < matchCount; i++) {
+    // WPM varies around the base WPM
+    const wpmVariation = baseWpm + Math.floor((Math.random() - 0.5) * 20);
+    const accuracy = 85 + Math.random() * 14; // 85-99%
+    
+    matchHistory.push({
+      raceId: 1, // Will be set later with dummy race
+      participantId: 1, // Will be set later
+      userId: user.id,
+      finishPosition: Math.random() < winRate ? 1 : Math.floor(2 + Math.random() * 3),
+      wpm: Math.max(20, Math.min(200, wpmVariation)),
+      accuracy: Math.round(accuracy * 10) / 10,
+      ratingBefore: Math.round(rating - Math.random() * 50),
+      ratingAfter: Math.round(rating),
+      ratingChange: Math.round(Math.random() * 30 - 10),
+      opponentCount: Math.floor(2 + Math.random() * 3),
+      avgOpponentRating: Math.round(rating + (Math.random() - 0.5) * 200),
+      createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000) // Last 30 days
+    });
+  }
+  
   return {
-    userId: user.id,
-    rating: Math.round(rating),
-    tier,
-    wins,
-    losses,
-    totalRaces: raceCount,
-    winRate: Math.round(winRate * 100),
-    peakRating: Math.round(rating * (1 + Math.random() * 0.1)), // Peak is slightly higher
-    createdAt: user.createdAt,
-    updatedAt: new Date()
+    rating: {
+      userId: user.id,
+      rating: Math.round(rating),
+      tier,
+      wins,
+      losses,
+      totalRaces: raceCount,
+      winRate: Math.round(winRate * 100),
+      peakRating: Math.round(rating * (1 + Math.random() * 0.1)), // Peak is slightly higher
+      createdAt: user.createdAt,
+      updatedAt: new Date()
+    },
+    matchHistory
   };
 }
 
 /**
  * Generate ratings for multiple users
  */
-export function generateRatings(users: SeedUser[]): any[] {
+export function generateRatings(users: SeedUser[]): { ratings: any[]; matchHistory: any[] } {
   const allRatings: any[] = [];
+  const allMatchHistory: any[] = [];
   
   console.log(`Generating competitive racing ratings for ${users.length} users...`);
   
   for (let i = 0; i < users.length; i++) {
     const user = users[i];
-    const rating = generateUserRating(user);
+    const { rating, matchHistory } = generateUserRating(user);
     allRatings.push(rating);
+    allMatchHistory.push(...matchHistory);
     
     if ((i + 1) % 10 === 0) {
       console.log(`  Generated ratings for ${i + 1}/${users.length} users`);
@@ -110,7 +140,8 @@ export function generateRatings(users: SeedUser[]): any[] {
   }
   
   console.log(`Total ratings generated: ${allRatings.length}`);
+  console.log(`Total match history entries: ${allMatchHistory.length}`);
   
-  return allRatings;
+  return { ratings: allRatings, matchHistory: allMatchHistory };
 }
 

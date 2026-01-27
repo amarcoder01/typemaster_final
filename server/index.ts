@@ -10,6 +10,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import runApp from "./app";
 import { startLeaderboardRefreshScheduler } from "./jobs/schedule-leaderboard-refresh.js";
 import { leaderboardWS } from "./leaderboard-websocket.js";
+import { initializeBatchProcessor } from "./jobs/leaderboard-batch-processor.js";
 
 import viteConfig from "../vite.config";
 
@@ -71,6 +72,9 @@ export async function setupVite(app: Express, server: Server) {
 
 (async () => {
   await runApp(setupVite);
+  
+  // Initialize leaderboard batch processor (event stream consumer)
+  await initializeBatchProcessor();
   
   // Start leaderboard cache refresh scheduler
   await startLeaderboardRefreshScheduler();

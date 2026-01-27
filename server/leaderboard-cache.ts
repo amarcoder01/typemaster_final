@@ -1,8 +1,29 @@
 import { storage } from "./storage";
 import crypto from "node:crypto";
+import { getRedis, REDIS_ENABLED } from "./redis-client";
+import { 
+  LeaderboardMode, 
+  LeaderboardTimeframe, 
+  LeaderboardSnapshot,
+  getLeaderboardConfig 
+} from "../shared/leaderboard-types";
 
 export type LeaderboardType = "global" | "code" | "stress" | "dictation" | "rating" | "book";
 export type TimeFrame = "all" | "daily" | "weekly" | "monthly";
+
+// Redis key patterns for distributed cache
+const REDIS_CACHE_KEYS = {
+  topN: (mode: string, timeframe: string, language: string) => 
+    `leaderboard:top100:${mode}:${timeframe}:${language}`,
+  snapshot: (mode: string, timeframe: string, language: string) =>
+    `leaderboard:snapshot:${mode}:${timeframe}:${language}`,
+};
+
+// TTL for Redis cache in seconds
+const REDIS_CACHE_TTL = {
+  topN: 60, // 1 minute
+  snapshot: 60, // 1 minute
+};
 
 interface CacheEntry<T> {
   data: T;
@@ -41,19 +62,21 @@ interface PaginatedResponse<T> {
   };
 }
 
+// Cache TTLs - configurable via environment variables for real-time experience
+// Default values are much shorter for near real-time updates
 const CACHE_TTL_MS = {
-  global: 300000, // 5 minutes - materialized views refresh every 5 minutes
-  code: 300000,
-  stress: 300000,
-  dictation: 300000,
-  rating: 300000,
-  book: 300000,
-  aroundMe: 60000, // 1 minute for user-specific data
-  timeBased: 300000,
+  global: parseInt(process.env.LEADERBOARD_CACHE_TTL_GLOBAL_MS || '10000', 10), // 10 seconds
+  code: parseInt(process.env.LEADERBOARD_CACHE_TTL_CODE_MS || '10000', 10),
+  stress: parseInt(process.env.LEADERBOARD_CACHE_TTL_STRESS_MS || '10000', 10),
+  dictation: parseInt(process.env.LEADERBOARD_CACHE_TTL_DICTATION_MS || '10000', 10),
+  rating: parseInt(process.env.LEADERBOARD_CACHE_TTL_RATING_MS || '30000', 10), // 30 seconds for ELO
+  book: parseInt(process.env.LEADERBOARD_CACHE_TTL_BOOK_MS || '10000', 10),
+  aroundMe: parseInt(process.env.LEADERBOARD_CACHE_TTL_AROUND_ME_MS || '5000', 10), // 5 seconds for user-specific
+  timeBased: parseInt(process.env.LEADERBOARD_CACHE_TTL_TIME_BASED_MS || '10000', 10),
 };
 
-const MAX_CACHE_SIZE = 100;
-const MAX_MEMORY_MB = 50;
+const MAX_CACHE_SIZE = parseInt(process.env.LEADERBOARD_MAX_CACHE_SIZE || '100', 10);
+const MAX_MEMORY_MB = parseInt(process.env.LEADERBOARD_MAX_MEMORY_MB || '50', 10);
 
 function generateEtag(data: any): string {
   const hash = crypto.createHash('md5');
@@ -220,6 +243,158 @@ class LeaderboardCache {
     }
   }
 
+  /**
+   * Invalidate Redis cache for a specific leaderboard
+   */
+  async invalidateRedis(mode: string, timeframe: string, language: string): Promise<void> {
+    if (!REDIS_ENABLED) return;
+
+    const redis = getRedis();
+    const keys = [
+      REDIS_CACHE_KEYS.topN(mode, timeframe, language),
+      REDIS_CACHE_KEYS.snapshot(mode, timeframe, language),
+    ];
+
+    try {
+      await redis.del(...keys);
+    } catch (error) {
+      console.error('[LeaderboardCache] Redis invalidation failed:', error);
+    }
+  }
+
+  /**
+   * Get Top-N entries from Redis cache
+   * Falls back to database if not cached
+   */
+  async getRedisTopN(
+    mode: LeaderboardMode,
+    timeframe: LeaderboardTimeframe,
+    language: string,
+    limit: number = 100
+  ): Promise<LeaderboardSnapshot | null> {
+    if (!REDIS_ENABLED) return null;
+
+    const redis = getRedis();
+    const key = REDIS_CACHE_KEYS.topN(mode, timeframe, language);
+
+    try {
+      const cached = await redis.get(key);
+      if (cached) {
+        const data = JSON.parse(cached) as LeaderboardSnapshot;
+        return {
+          ...data,
+          entries: data.entries.slice(0, limit),
+        };
+      }
+    } catch (error) {
+      console.error('[LeaderboardCache] Redis get failed:', error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Set Top-N entries in Redis cache
+   */
+  async setRedisTopN(
+    mode: LeaderboardMode,
+    timeframe: LeaderboardTimeframe,
+    language: string,
+    entries: LeaderboardEntry[],
+    total: number
+  ): Promise<void> {
+    if (!REDIS_ENABLED) return;
+
+    const redis = getRedis();
+    const key = REDIS_CACHE_KEYS.topN(mode, timeframe, language);
+    const config = getLeaderboardConfig();
+
+    try {
+      const snapshot: LeaderboardSnapshot = {
+        version: Date.now(),
+        mode,
+        timeframe,
+        language,
+        entries: entries.slice(0, config.topNSize),
+        total,
+        generatedAt: Date.now(),
+        expiresAt: Date.now() + REDIS_CACHE_TTL.topN * 1000,
+      };
+
+      await redis.setex(key, REDIS_CACHE_TTL.topN, JSON.stringify(snapshot));
+    } catch (error) {
+      console.error('[LeaderboardCache] Redis set failed:', error);
+    }
+  }
+
+  /**
+   * Get leaderboard snapshot from Redis (for CDN/anonymous traffic)
+   */
+  async getRedisSnapshot(
+    mode: LeaderboardMode,
+    timeframe: LeaderboardTimeframe,
+    language: string
+  ): Promise<LeaderboardSnapshot | null> {
+    if (!REDIS_ENABLED) return null;
+
+    const redis = getRedis();
+    const key = REDIS_CACHE_KEYS.snapshot(mode, timeframe, language);
+
+    try {
+      const cached = await redis.get(key);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (error) {
+      console.error('[LeaderboardCache] Redis snapshot get failed:', error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Set leaderboard snapshot in Redis
+   */
+  async setRedisSnapshot(snapshot: LeaderboardSnapshot): Promise<void> {
+    if (!REDIS_ENABLED) return;
+
+    const redis = getRedis();
+    const key = REDIS_CACHE_KEYS.snapshot(snapshot.mode, snapshot.timeframe, snapshot.language);
+
+    try {
+      await redis.setex(key, REDIS_CACHE_TTL.snapshot, JSON.stringify(snapshot));
+    } catch (error) {
+      console.error('[LeaderboardCache] Redis snapshot set failed:', error);
+    }
+  }
+
+  /**
+   * Get cache stats including Redis stats
+   */
+  async getRedisStats(): Promise<{
+    localStats: { hits: number; misses: number; evictions: number; memoryUsedBytes: number; hitRate: number; size: number };
+    redisEnabled: boolean;
+    redisKeyCount?: number;
+  }> {
+    const localStats = this.getStats();
+    
+    if (!REDIS_ENABLED) {
+      return { localStats, redisEnabled: false };
+    }
+
+    try {
+      const redis = getRedis();
+      const keys = await this.scanKeys(redis, 'leaderboard:*');
+      return {
+        localStats,
+        redisEnabled: true,
+        redisKeyCount: keys.length,
+      };
+    } catch {
+      return { localStats, redisEnabled: true };
+    }
+  }
+
   getStats() {
     const hitRate = this.stats.hits + this.stats.misses > 0
       ? this.stats.hits / (this.stats.hits + this.stats.misses)
@@ -231,24 +406,117 @@ class LeaderboardCache {
     };
   }
 
-  async getGlobalLeaderboard(options: {
-    timeframe?: TimeFrame;
-    limit?: number;
-    offset?: number;
-    language?: string;
-  }): Promise<PaginatedResponse<any>> {
-    const { timeframe = "all", limit = 20, offset = 0, language = "en" } = options;
-    const cacheKey = this.getCacheKey("global", { timeframe, limit, offset, language });
+  private async scanKeys(redis: ReturnType<typeof getRedis>, pattern: string): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '200');
+      cursor = nextCursor;
+      if (batch.length > 0) {
+        keys.push(...batch);
+      }
+    } while (cursor !== '0');
+    return keys;
+  }
+
+  /**
+   * Generic leaderboard fetcher - reduces code duplication across all leaderboard types
+   * Uses tiered caching: Redis (distributed) -> In-memory (local) -> Database
+   * 
+   * @param type - The type of leaderboard (global, code, stress, etc.)
+   * @param options - Pagination and filter options
+   * @param fetchFns - Functions to fetch entries and total count
+   */
+  private async getLeaderboardGeneric<T>(
+    type: LeaderboardType,
+    options: {
+      timeframe?: TimeFrame;
+      limit: number;
+      offset: number;
+      language?: string;
+      cacheKeyOptions: Record<string, any>;
+    },
+    fetchFns: {
+      getEntries: () => Promise<T[]>;
+      getTotal: () => Promise<number>;
+    }
+  ): Promise<PaginatedResponse<T>> {
+    const { timeframe = "all", limit, offset, language, cacheKeyOptions } = options;
+    const languageKey = language || "all";
+    const cacheKey = this.getCacheKey(type, cacheKeyOptions);
+    const ttl = this.getTTL(type);
+    let redisSnapshot: LeaderboardSnapshot | null = null;
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.global);
+    // 1. Check local in-memory cache first (fastest)
+    const cached = this.get<PaginatedResponse<T>>(cacheKey, ttl);
     if (cached) {
       return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
     }
 
-    const entries = await storage.getLeaderboardPaginated(limit, offset, timeframe, language);
-    const total = await storage.getLeaderboardCount(timeframe, language);
+    // 2. For top entries (offset 0), try Redis distributed cache
+    if (offset === 0 && REDIS_ENABLED) {
+      try {
+        redisSnapshot = await this.getRedisTopN(type as LeaderboardMode, timeframe as LeaderboardTimeframe, languageKey, limit);
+        if (redisSnapshot && redisSnapshot.entries.length > 0) {
+          const total = Math.max(redisSnapshot.total, redisSnapshot.entries.length);
+          const response: PaginatedResponse<T> = {
+            entries: redisSnapshot.entries.slice(0, limit) as T[],
+            pagination: {
+              total,
+              limit,
+              offset,
+              hasMore: limit < total,
+              nextCursor: limit < total ? this.encodeCursor(limit) : undefined,
+            },
+            metadata: {
+              cacheHit: true,
+              timeframe,
+              lastUpdated: Date.now(),
+            },
+          };
+          // Populate local cache from Redis
+          const etag = this.set(cacheKey, response);
+          return { ...response, metadata: { ...response.metadata, etag } };
+        }
+      } catch (error) {
+        console.error('[LeaderboardCache] Redis cache miss or error:', error);
+        // Fall through to database
+      }
+    }
 
-    const response: PaginatedResponse<any> = {
+    // 3. Fetch from database
+    let entries: T[];
+    let total: number;
+    try {
+      [entries, total] = await Promise.all([
+        fetchFns.getEntries(),
+        fetchFns.getTotal(),
+      ]);
+    } catch (error) {
+      if (redisSnapshot) {
+        const totalFromSnapshot = Math.max(redisSnapshot.total, redisSnapshot.entries.length);
+        const response: PaginatedResponse<T> = {
+          entries: redisSnapshot.entries.slice(0, limit) as T[],
+          pagination: {
+            total: totalFromSnapshot,
+            limit,
+            offset,
+            hasMore: limit < totalFromSnapshot,
+            nextCursor: limit < totalFromSnapshot ? this.encodeCursor(limit) : undefined,
+          },
+          metadata: {
+            cacheHit: true,
+            timeframe,
+            lastUpdated: Date.now(),
+          },
+        };
+        const etag = this.set(cacheKey, response);
+        return { ...response, metadata: { ...response.metadata, etag } };
+      }
+      throw error;
+    }
+
+    const response: PaginatedResponse<T> = {
       entries,
       pagination: {
         total,
@@ -265,82 +533,83 @@ class LeaderboardCache {
       },
     };
 
+    // Set local cache
     const etag = this.set(cacheKey, response);
+
+    // Populate Redis cache for top entries
+    if (offset === 0 && REDIS_ENABLED) {
+      try {
+        await this.setRedisTopN(
+          type as LeaderboardMode,
+          timeframe as LeaderboardTimeframe,
+          languageKey,
+          entries as LeaderboardEntry[],
+          total
+        );
+      } catch (error) {
+        console.error('[LeaderboardCache] Failed to set Redis cache:', error);
+      }
+    }
+
     return { ...response, metadata: { ...response.metadata, etag } };
+  }
+
+  async getGlobalLeaderboard(options: {
+    timeframe?: TimeFrame;
+    limit?: number;
+    offset?: number;
+    language?: string;
+  }): Promise<PaginatedResponse<any>> {
+    const { timeframe = "all", limit = 20, offset = 0, language = "en" } = options;
+    
+    return this.getLeaderboardGeneric("global", {
+      timeframe,
+      limit,
+      offset,
+      language,
+      cacheKeyOptions: { timeframe, limit, offset, language },
+    }, {
+      getEntries: () => storage.getLeaderboardPaginated(limit, offset, timeframe, language),
+      getTotal: () => storage.getLeaderboardCount(timeframe, language),
+    });
   }
 
   async getStressLeaderboard(options: {
     difficulty?: string;
+    timeframe?: TimeFrame;
     limit?: number;
     offset?: number;
   }): Promise<PaginatedResponse<any>> {
-    const { difficulty, limit = 50, offset = 0 } = options;
-    const cacheKey = this.getCacheKey("stress", { difficulty, limit, offset });
+    const { difficulty, timeframe = "all", limit = 50, offset = 0 } = options;
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.stress);
-    if (cached) {
-      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
-    }
-
-    const entries = await storage.getStressTestLeaderboardPaginated(difficulty, limit, offset);
-    const total = await storage.getStressTestLeaderboardCount(difficulty);
-
-    const response: PaginatedResponse<any> = {
-      entries,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + entries.length < total,
-        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
-        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
-      },
-      metadata: {
-        cacheHit: false,
-        timeframe: "all",
-        lastUpdated: Date.now(),
-      },
-    };
-
-    const etag = this.set(cacheKey, response);
-    return { ...response, metadata: { ...response.metadata, etag } };
+    return this.getLeaderboardGeneric("stress", {
+      timeframe,
+      limit,
+      offset,
+      cacheKeyOptions: { difficulty, timeframe, limit, offset },
+    }, {
+      getEntries: () => storage.getStressTestLeaderboardPaginated(difficulty, timeframe, limit, offset),
+      getTotal: () => storage.getStressTestLeaderboardCount(difficulty, timeframe),
+    });
   }
 
   async getCodeLeaderboard(options: {
     language?: string;
+    timeframe?: TimeFrame;
     limit?: number;
     offset?: number;
   }): Promise<PaginatedResponse<any>> {
-    const { language, limit = 20, offset = 0 } = options;
-    const cacheKey = this.getCacheKey("code", { language, limit, offset });
+    const { language, timeframe = "all", limit = 20, offset = 0 } = options;
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.code);
-    if (cached) {
-      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
-    }
-
-    const entries = await storage.getCodeLeaderboardPaginated(language, limit, offset);
-    const total = await storage.getCodeLeaderboardCount(language);
-
-    const response: PaginatedResponse<any> = {
-      entries,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + entries.length < total,
-        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
-        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
-      },
-      metadata: {
-        cacheHit: false,
-        timeframe: "all",
-        lastUpdated: Date.now(),
-      },
-    };
-
-    const etag = this.set(cacheKey, response);
-    return { ...response, metadata: { ...response.metadata, etag } };
+    return this.getLeaderboardGeneric("code", {
+      timeframe,
+      limit,
+      offset,
+      cacheKeyOptions: { language, timeframe, limit, offset },
+    }, {
+      getEntries: () => storage.getCodeLeaderboardPaginated(language, timeframe, limit, offset),
+      getTotal: () => storage.getCodeLeaderboardCount(language, timeframe),
+    });
   }
 
   async getRatingLeaderboard(options: {
@@ -349,71 +618,34 @@ class LeaderboardCache {
     offset?: number;
   }): Promise<PaginatedResponse<any>> {
     const { tier, limit = 50, offset = 0 } = options;
-    const cacheKey = this.getCacheKey("rating", { tier, limit, offset });
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.rating);
-    if (cached) {
-      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
-    }
-
-    const entries = await storage.getRatingLeaderboardPaginated(tier, limit, offset);
-    const total = await storage.getRatingLeaderboardCount(tier);
-
-    const response: PaginatedResponse<any> = {
-      entries,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + entries.length < total,
-        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
-        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
-      },
-      metadata: {
-        cacheHit: false,
-        timeframe: "all",
-        lastUpdated: Date.now(),
-      },
-    };
-
-    const etag = this.set(cacheKey, response);
-    return { ...response, metadata: { ...response.metadata, etag } };
+    return this.getLeaderboardGeneric("rating", {
+      timeframe: "all",
+      limit,
+      offset,
+      cacheKeyOptions: { tier, limit, offset },
+    }, {
+      getEntries: () => storage.getRatingLeaderboardPaginated(tier, limit, offset),
+      getTotal: () => storage.getRatingLeaderboardCount(tier),
+    });
   }
 
   async getDictationLeaderboard(options: {
+    timeframe?: TimeFrame;
     limit?: number;
     offset?: number;
   }): Promise<PaginatedResponse<any>> {
-    const { limit = 20, offset = 0 } = options;
-    const cacheKey = this.getCacheKey("dictation", { limit, offset });
+    const { timeframe = "all", limit = 20, offset = 0 } = options;
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.dictation);
-    if (cached) {
-      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
-    }
-
-    const entries = await storage.getDictationLeaderboardPaginated(limit, offset);
-    const total = await storage.getDictationLeaderboardCount();
-
-    const response: PaginatedResponse<any> = {
-      entries,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + entries.length < total,
-        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
-        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
-      },
-      metadata: {
-        cacheHit: false,
-        timeframe: "all",
-        lastUpdated: Date.now(),
-      },
-    };
-
-    const etag = this.set(cacheKey, response);
-    return { ...response, metadata: { ...response.metadata, etag } };
+    return this.getLeaderboardGeneric("dictation", {
+      timeframe,
+      limit,
+      offset,
+      cacheKeyOptions: { timeframe, limit, offset },
+    }, {
+      getEntries: () => storage.getDictationLeaderboardPaginated(timeframe, limit, offset),
+      getTotal: () => storage.getDictationLeaderboardCount(timeframe),
+    });
   }
 
   async getBookLeaderboard(options: {
@@ -422,35 +654,16 @@ class LeaderboardCache {
     offset?: number;
   }): Promise<PaginatedResponse<any>> {
     const { topic, limit = 20, offset = 0 } = options;
-    const cacheKey = this.getCacheKey("book", { topic, limit, offset });
     
-    const cached = this.get<PaginatedResponse<any>>(cacheKey, CACHE_TTL_MS.book);
-    if (cached) {
-      return { ...cached.data, metadata: { ...cached.data.metadata, cacheHit: true, etag: cached.etag } };
-    }
-
-    const entries = await storage.getBookLeaderboardPaginated(topic, limit, offset);
-    const total = await storage.getBookLeaderboardCount(topic);
-
-    const response: PaginatedResponse<any> = {
-      entries,
-      pagination: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + entries.length < total,
-        nextCursor: offset + limit < total ? this.encodeCursor(offset + limit) : undefined,
-        prevCursor: offset > 0 ? this.encodeCursor(Math.max(0, offset - limit)) : undefined,
-      },
-      metadata: {
-        cacheHit: false,
-        timeframe: "all",
-        lastUpdated: Date.now(),
-      },
-    };
-
-    const etag = this.set(cacheKey, response);
-    return { ...response, metadata: { ...response.metadata, etag } };
+    return this.getLeaderboardGeneric("book", {
+      timeframe: "all",
+      limit,
+      offset,
+      cacheKeyOptions: { topic, limit, offset },
+    }, {
+      getEntries: () => storage.getBookLeaderboardPaginated(topic, limit, offset),
+      getTotal: () => storage.getBookLeaderboardCount(topic),
+    });
   }
 
   async getAroundMe(
@@ -480,16 +693,16 @@ class LeaderboardCache {
         result = await storage.getLeaderboardAroundUser(userId, range, timeframe, options.language || "en");
         break;
       case "stress":
-        result = await storage.getStressLeaderboardAroundUser(userId, options.difficulty, range);
+        result = await storage.getStressLeaderboardAroundUser(userId, options.difficulty, timeframe, range);
         break;
       case "code":
-        result = await storage.getCodeLeaderboardAroundUser(userId, options.language, range);
+        result = await storage.getCodeLeaderboardAroundUser(userId, options.language, timeframe, range);
         break;
       case "rating":
         result = await storage.getRatingLeaderboardAroundUser(userId, options.tier, range);
         break;
       case "dictation":
-        result = await storage.getDictationLeaderboardAroundUser(userId, range);
+        result = await storage.getDictationLeaderboardAroundUser(userId, timeframe, range);
         break;
       case "book":
         result = await storage.getBookLeaderboardAroundUser(userId, options.topic, range);
@@ -519,29 +732,58 @@ class LeaderboardCache {
 
 export const leaderboardCache = new LeaderboardCache();
 
+/**
+ * Get date range for a given timeframe with UTC normalization
+ * Production-ready with proper edge case handling
+ */
 export function getTimeframeDateRange(timeframe: TimeFrame): { start: Date; end: Date } {
+  // Use UTC to ensure consistent behavior across timezones
   const now = new Date();
   const end = new Date(now);
   let start: Date;
 
-  switch (timeframe) {
+  // Validate timeframe input
+  const validTimeframes: TimeFrame[] = ["all", "daily", "weekly", "monthly"];
+  const safeTimeframe = validTimeframes.includes(timeframe) ? timeframe : "all";
+
+  switch (safeTimeframe) {
     case "daily":
-      start = new Date(now);
-      start.setHours(0, 0, 0, 0);
+      // Start of today in UTC
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
       break;
     case "weekly":
-      start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
+      // Start of current week (Sunday) in UTC
+      const dayOfWeek = now.getUTCDay();
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek, 0, 0, 0, 0));
       break;
     case "monthly":
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      // Start of current month in UTC
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
       break;
     case "all":
     default:
+      // Unix epoch for all-time
       start = new Date(0);
       break;
   }
 
+  // Ensure start is never after end (edge case protection)
+  if (start.getTime() > end.getTime()) {
+    console.warn(`[TimeframeDateRange] Start date after end date, resetting to epoch`);
+    start = new Date(0);
+  }
+
   return { start, end };
+}
+
+/**
+ * Validate timeframe parameter
+ * Returns a safe default if invalid
+ */
+export function validateTimeframe(timeframe: string | undefined): TimeFrame {
+  const validTimeframes: TimeFrame[] = ["all", "daily", "weekly", "monthly"];
+  if (!timeframe || !validTimeframes.includes(timeframe as TimeFrame)) {
+    return "all";
+  }
+  return timeframe as TimeFrame;
 }

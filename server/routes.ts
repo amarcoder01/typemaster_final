@@ -5,6 +5,9 @@ import { storage, getPoolStats } from "./storage";
 import { checkRateLimit } from "./auth-security";
 import { leaderboardCache } from "./leaderboard-cache";
 import { leaderboardWS } from "./leaderboard-websocket";
+import { triggerImmediateRefresh } from "./jobs/schedule-leaderboard-refresh";
+import { publishScoreEvent } from "./leaderboard-event-stream";
+import { getPrometheusMetrics, getDetailedMetrics, leaderboardHealthCheck } from "./leaderboard-metrics";
 import { metrics, getMetrics, getContentType, updateServerMetrics } from "./metrics-exporter";
 import { SERVER_ID, REDIS_ENABLED, getRedis } from "./redis-client";
 import { streamChatCompletionWithSearch, shouldPerformWebSearch, generateConversationTitle, type ChatMessage, type StreamEvent } from "./chat-service";
@@ -33,6 +36,14 @@ import { AuthSecurityService } from "./auth-security-service";
 import { createBlogRoutes } from "./blog/blog-routes";
 import { createImageRoutes } from "./image-routes";
 import { requireRole } from "./rbac";
+import {
+  VALID_BOOK_TOPICS,
+  VALID_LANGUAGES,
+  VALID_PROGRAMMING_LANGUAGES,
+  VALID_RATING_TIERS,
+  VALID_STRESS_DIFFICULTIES,
+  VALID_TIMEFRAMES,
+} from "../shared/leaderboard-filters";
 import {
   initializeOAuthStrategies,
   rememberMeMiddleware,
@@ -734,6 +745,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Leaderboard-specific health check
+  app.get("/api/health/leaderboard", async (_req, res) => {
+    try {
+      const health = await leaderboardHealthCheck();
+      const statusCode = health.healthy ? 200 : (health.status === 'degraded' ? 200 : 503);
+      res.status(statusCode).json(health);
+    } catch (error: any) {
+      res.status(500).json({ 
+        healthy: false, 
+        status: 'unhealthy', 
+        error: error.message 
+      });
+    }
+  });
+
+  // Leaderboard metrics for admin dashboard
+  app.get("/api/admin/leaderboard/metrics", requireRole(["admin"]), async (_req, res) => {
+    try {
+      const metrics = await getDetailedMetrics();
+      res.json(metrics);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Prometheus-compatible metrics endpoint
+  app.get("/api/admin/leaderboard/metrics/prometheus", async (_req, res) => {
+    try {
+      const metrics = await getPrometheusMetrics();
+      res.set("Content-Type", "text/plain; version=0.0.4");
+      res.send(metrics);
+    } catch (error: any) {
+      res.status(500).send(`# Error: ${error.message}`);
+    }
+  });
+
   const errorReportLimiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 10,
@@ -1237,28 +1284,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await storage.createTestResult(parsed.data);
 
-      // Broadcast leaderboard update via WebSocket
-      try {
-        const user = await storage.getUser(req.user!.id);
-        const leaderboardData = await storage.getLeaderboardAroundUser(req.user!.id, 0, 'all', result.language);
+      // Get user info for event publishing
+      const user = await storage.getUser(req.user!.id);
 
-        if (leaderboardData.userRank > 0) {
-          leaderboardWS.broadcastNewEntry(
-            req.user!.id,
-            user?.username || 'Anonymous',
-            'global',
-            'all',
-            result.language,
-            leaderboardData.userRank,
-            result.wpm,
-            result.accuracy,
-            {
-              mode: result.mode,
-              avatarColor: user?.avatarColor,
-              isVerified: false,
-            }
-          );
-        }
+      // Publish score event to stream for batched processing
+      // This decouples score submission from leaderboard updates for scalability
+      try {
+        await publishScoreEvent({
+          userId: req.user!.id,
+          username: user?.username || 'Anonymous',
+          wpm: result.wpm,
+          accuracy: result.accuracy,
+          mode: result.mode,
+          language: result.language,
+          leaderboardMode: 'global',
+          timestamp: Date.now(),
+          testResultId: result.id,
+          isVerified: false,
+          avatarColor: user?.avatarColor || undefined,
+        });
+      } catch (streamError) {
+        console.error('[EventStream] Failed to publish score event:', streamError);
+        // Fall back to direct processing if stream fails
+        leaderboardCache.invalidate('global');
+        leaderboardCache.invalidate(`aroundMe:global`);
+        triggerImmediateRefresh();
+      }
+
+      // Direct WebSocket broadcast for immediate feedback to connected clients
+      // This provides instant feedback while batch processor handles full leaderboard updates
+      try {
+        const leaderboardData = await storage.getLeaderboardAroundUser(req.user!.id, 5, 'all', result.language);
+        const effectiveRank = leaderboardData.userRank > 0 ? leaderboardData.userRank : 0;
+        
+        leaderboardWS.broadcastNewEntry(
+          req.user!.id,
+          user?.username || 'Anonymous',
+          'global',
+          'all',
+          result.language,
+          effectiveRank,
+          result.wpm,
+          result.accuracy,
+          {
+            mode: result.mode,
+            avatarColor: user?.avatarColor,
+            isVerified: false,
+          }
+        );
       } catch (wsError) {
         console.error('[Leaderboard WS] Failed to broadcast update:', wsError);
         // Don't fail the request if WebSocket broadcast fails
@@ -1297,13 +1370,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check for leaderboard rank improvement and send notification
       try {
-        const leaderboardResult = await storage.getLeaderboardAroundUser(req.user!.id, 1, 'all-time', result.language);
+        const leaderboardResult = await storage.getLeaderboardAroundUser(req.user!.id, 1, 'all', result.language);
         const newRank = leaderboardResult.userRank;
 
         // Only send notification if user has a rank and it's in top 100
         if (newRank > 0 && newRank <= 100) {
           // Check if this is a significant improvement (entering top 100, or moving up 5+ positions)
-          const totalUsers = await storage.getLeaderboardCount('all-time', result.language);
+          const totalUsers = await storage.getLeaderboardCount('all', result.language);
 
           // For new personal bests, likely moved up in rankings - send notification for top positions
           if (isPersonalRecord && (newRank <= 10 || (newRank <= 50 && previousBestWpm > 0))) {
@@ -1566,15 +1639,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const buildEmptyLeaderboardResponse = (limit: number, offset: number, timeframe: string) => ({
+    entries: [],
+    pagination: {
+      total: 0,
+      limit,
+      offset,
+      hasMore: false,
+    },
+    metadata: {
+      cacheHit: false,
+      timeframe,
+      lastUpdated: Date.now(),
+    },
+  });
+
   app.get("/api/leaderboard", leaderboardLimiter, async (req, res) => {
     try {
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
-      const rawTimeframe = (req.query.timeframe as string) || "all";
-      const validTimeframes = ["all", "daily", "weekly", "monthly"];
-      const timeframe = validTimeframes.includes(rawTimeframe) ? rawTimeframe : "all";
-      const language = (req.query.language as string) || "en";
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe : "all";
+      const rawLanguage = (req.query.language as string | undefined)?.toLowerCase();
+      if (rawLanguage && !VALID_LANGUAGES.includes(rawLanguage as any)) {
+        return res.json(buildEmptyLeaderboardResponse(limit, offset, timeframe));
+      }
+      const language = rawLanguage || "en";
 
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
 
@@ -1608,17 +1702,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = await Promise.all(
         requests.map(async (request: any) => {
           const { type, timeframe = "all", language = "en", limit = 20, offset = 0, userId, range = 5 } = request;
+          const normalizedTimeframe = VALID_TIMEFRAMES.includes(timeframe as any) ? timeframe : "all";
+          const normalizedLanguage = (language as string | undefined)?.toLowerCase();
+          const hasInvalidLanguage = normalizedLanguage ? !VALID_LANGUAGES.includes(normalizedLanguage as any) : false;
+          const safeLimit = Math.min(limit, 100);
+          const safeOffset = Math.max(0, offset);
 
           try {
+            if ((timeframe && !VALID_TIMEFRAMES.includes(timeframe as any)) || hasInvalidLanguage) {
+              if (type === "leaderboard") {
+                return {
+                  type,
+                  data: buildEmptyLeaderboardResponse(safeLimit, safeOffset, normalizedTimeframe),
+                };
+              }
+              return { type, data: { userRank: -1, entries: [] } };
+            }
             switch (type) {
               case "leaderboard":
                 return {
                   type,
                   data: await leaderboardCache.getGlobalLeaderboard({
-                    timeframe: timeframe as any,
-                    limit: Math.min(limit, 100),
-                    offset: Math.max(0, offset),
-                    language,
+                    timeframe: normalizedTimeframe as any,
+                    limit: safeLimit,
+                    offset: safeOffset,
+                    language: normalizedLanguage || "en",
                   }),
                 };
 
@@ -1630,8 +1738,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   type,
                   data: await leaderboardCache.getAroundMe("global", userId, {
                     range: Math.min(range, 20),
-                    timeframe: timeframe as any,
-                    language,
+                    timeframe: normalizedTimeframe as any,
+                    language: normalizedLanguage || "en",
                   }),
                 };
 
@@ -1655,10 +1763,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
     try {
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
-      const rawTimeframe = (req.query.timeframe as string) || "all";
-      const validTimeframes = ["all", "daily", "weekly", "monthly"];
-      const timeframe = validTimeframes.includes(rawTimeframe) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
-      const language = (req.query.language as string) || "en";
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
+      const rawLanguage = (req.query.language as string | undefined)?.toLowerCase();
+      if (rawLanguage && !VALID_LANGUAGES.includes(rawLanguage as any)) {
+        return res.json({ userRank: -1, entries: [], timeframe });
+      }
+      const language = rawLanguage || "en";
 
       const result = await leaderboardCache.getAroundMe("global", req.user!.id, { range, timeframe, language });
 
@@ -3824,14 +3938,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/ratings/leaderboard", ratingLimiter, async (req, res) => {
     try {
-      const tier = req.query.tier as string | undefined;
+      const rawTier = (req.query.tier as string | undefined)?.toLowerCase();
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
 
-      if (tier && !["bronze", "silver", "gold", "platinum", "diamond", "master", "grandmaster"].includes(tier)) {
-        return res.status(400).json({ message: "Invalid tier" });
+      if (rawTier && !VALID_RATING_TIERS.includes(rawTier as any)) {
+        return res.json(buildEmptyLeaderboardResponse(limit, offset, "all"));
       }
+      const tier = rawTier || undefined;
 
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
 
@@ -3863,8 +3978,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/ratings/leaderboard/around-me", isAuthenticated, ratingLimiter, async (req, res) => {
     try {
-      const tier = req.query.tier as string | undefined;
+      const rawTier = (req.query.tier as string | undefined)?.toLowerCase();
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
+      if (rawTier && !VALID_RATING_TIERS.includes(rawTier as any)) {
+        return res.json({ userRank: -1, entries: [] });
+      }
+      const tier = rawTier || undefined;
 
       const result = await leaderboardCache.getAroundMe("rating", req.user!.id, { tier, range });
 
@@ -4179,6 +4298,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const test = await storage.createCodeTypingTest(parsed.data);
 
+      // Invalidate code leaderboard cache immediately so new result appears
+      leaderboardCache.invalidate('code');
+      leaderboardCache.invalidate('aroundMe:code');
+      
+      // Trigger immediate refresh for real-time updates
+      triggerImmediateRefresh();
+
       // Update user streak after completing a code typing test
       try {
         const streakResult = await storage.updateUserStreak(req.user!.id);
@@ -4279,17 +4405,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/code/leaderboard", leaderboardLimiter, async (req, res) => {
     try {
-      const rawLanguage = req.query.language as string | undefined;
-      const validLanguages = ["javascript", "typescript", "python", "java", "go", "rust", "csharp"];
-      const language = rawLanguage && validLanguages.includes(rawLanguage) ? rawLanguage : undefined;
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
+      const rawLanguage = (req.query.language as string | undefined)?.toLowerCase();
+      if (rawLanguage && rawLanguage !== "all" && !VALID_PROGRAMMING_LANGUAGES.includes(rawLanguage as any)) {
+        return res.json(buildEmptyLeaderboardResponse(limit, offset, timeframe));
+      }
+      const language = rawLanguage && rawLanguage !== "all" ? rawLanguage : undefined;
 
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
 
       const result = await leaderboardCache.getCodeLeaderboard({
         language,
+        timeframe,
         limit,
         offset: actualOffset,
       });
@@ -4307,12 +4441,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/code/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
     try {
-      const rawLanguage = req.query.language as string | undefined;
-      const validLanguages = ["javascript", "typescript", "python", "java", "go", "rust", "csharp"];
-      const language = rawLanguage && validLanguages.includes(rawLanguage) ? rawLanguage : undefined;
+      const rawLanguage = (req.query.language as string | undefined)?.toLowerCase();
+      if (rawLanguage && rawLanguage !== "all" && !VALID_PROGRAMMING_LANGUAGES.includes(rawLanguage as any)) {
+        return res.json({ userRank: -1, entries: [] });
+      }
+      const language = rawLanguage && rawLanguage !== "all" ? rawLanguage : undefined;
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
 
-      const result = await leaderboardCache.getAroundMe("code", req.user!.id, { language, range });
+      const result = await leaderboardCache.getAroundMe("code", req.user!.id, { language, timeframe, range });
 
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
@@ -4481,7 +4622,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/book-paragraphs", async (req, res) => {
     try {
       const difficulty = req.query.difficulty as string | undefined;
-      const topic = req.query.topic as string | undefined;
+      const rawTopic = (req.query.topic as string | undefined)?.toLowerCase();
+      if (rawTopic && rawTopic !== "all" && !VALID_BOOK_TOPICS.includes(rawTopic as any)) {
+        return res.status(400).json({ message: "Invalid topic" });
+      }
+      const topic = rawTopic && rawTopic !== "all" ? rawTopic : undefined;
       const durationMode = req.query.durationMode ? parseInt(req.query.durationMode as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
 
@@ -4528,7 +4673,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/book-paragraphs/random", async (req, res) => {
     try {
       const difficulty = req.query.difficulty as string | undefined;
-      const topic = req.query.topic as string | undefined;
+      const rawTopic = (req.query.topic as string | undefined)?.toLowerCase();
+      if (rawTopic && rawTopic !== "all" && !VALID_BOOK_TOPICS.includes(rawTopic as any)) {
+        return res.json({ userRank: -1, entries: [] });
+      }
+      const topic = rawTopic && rawTopic !== "all" ? rawTopic : undefined;
       const durationMode = req.query.durationMode ? parseInt(req.query.durationMode as string) : undefined;
 
       if (difficulty && !['easy', 'medium', 'hard'].includes(difficulty)) {
@@ -4893,6 +5042,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await storage.createDictationTest(parsed.data);
 
+      // Invalidate dictation leaderboard cache immediately so new result appears
+      leaderboardCache.invalidate('dictation');
+      leaderboardCache.invalidate('aroundMe:dictation');
+      
+      // Trigger immediate refresh for real-time updates
+      triggerImmediateRefresh();
+
       // Update user streak after completing a dictation test
       try {
         const streakResult = await storage.updateUserStreak(req.user!.id);
@@ -4925,6 +5081,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dictation/leaderboard", leaderboardLimiter, async (req, res) => {
     try {
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
@@ -4932,6 +5093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
 
       const result = await leaderboardCache.getDictationLeaderboard({
+        timeframe,
         limit,
         offset: actualOffset,
       });
@@ -4949,9 +5111,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dictation/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
     try {
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
 
-      const result = await leaderboardCache.getAroundMe("dictation", req.user!.id, { range });
+      const result = await leaderboardCache.getAroundMe("dictation", req.user!.id, { timeframe, range });
 
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');
@@ -5244,6 +5411,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This prevents duplicate entries while maintaining the best score per difficulty
       const { result, isNewPersonalBest } = await storage.upsertStressTestBestScore(parsed.data);
 
+      // Invalidate stress leaderboard cache immediately so new result appears
+      leaderboardCache.invalidate('stress');
+      leaderboardCache.invalidate('aroundMe:stress');
+      
+      // Trigger immediate refresh for real-time updates
+      triggerImmediateRefresh();
+
       // Update user streak after completing a stress test
       try {
         const streakResult = await storage.updateUserStreak(req.user!.id);
@@ -5359,17 +5533,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stress-test/leaderboard", leaderboardLimiter, async (req, res) => {
     try {
-      const rawDifficulty = req.query.difficulty as string | undefined;
-      const validDifficulties = ["beginner", "intermediate", "expert", "nightmare", "impossible"];
-      const difficulty = rawDifficulty && validDifficulties.includes(rawDifficulty) ? rawDifficulty : undefined;
       const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 100);
       const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
       const cursor = req.query.cursor as string | undefined;
+      const rawDifficulty = (req.query.difficulty as string | undefined)?.toLowerCase();
+      if (rawDifficulty && !VALID_STRESS_DIFFICULTIES.includes(rawDifficulty as any)) {
+        return res.json(buildEmptyLeaderboardResponse(limit, offset, "all"));
+      }
+      const difficulty = rawDifficulty || undefined;
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
 
       const actualOffset = cursor ? leaderboardCache.decodeCursor(cursor) : offset;
 
       const result = await leaderboardCache.getStressLeaderboard({
         difficulty,
+        timeframe,
         limit,
         offset: actualOffset,
       });
@@ -5387,12 +5569,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stress-test/leaderboard/around-me", isAuthenticated, leaderboardAroundMeLimiter, async (req, res) => {
     try {
-      const rawDifficulty = req.query.difficulty as string | undefined;
-      const validDifficulties = ["beginner", "intermediate", "expert", "nightmare", "impossible"];
-      const difficulty = rawDifficulty && validDifficulties.includes(rawDifficulty) ? rawDifficulty : undefined;
+      const rawDifficulty = (req.query.difficulty as string | undefined)?.toLowerCase();
+      if (rawDifficulty && !VALID_STRESS_DIFFICULTIES.includes(rawDifficulty as any)) {
+        return res.json({ userRank: -1, entries: [] });
+      }
+      const difficulty = rawDifficulty || undefined;
+      const rawTimeframe = req.query.timeframe as string | undefined;
+      if (rawTimeframe && !VALID_TIMEFRAMES.includes(rawTimeframe as any)) {
+        return res.status(400).json({ message: "Invalid timeframe" });
+      }
+      const timeframe = rawTimeframe && VALID_TIMEFRAMES.includes(rawTimeframe as any) ? rawTimeframe as "all" | "daily" | "weekly" | "monthly" : "all";
       const range = Math.min(Math.max(1, parseInt(req.query.range as string) || 5), 20);
 
-      const result = await leaderboardCache.getAroundMe("stress", req.user!.id, { difficulty, range });
+      const result = await leaderboardCache.getAroundMe("stress", req.user!.id, { difficulty, timeframe, range });
 
       res.set('Cache-Control', 'private, max-age=10');
       res.set('X-Cache', result.cacheHit ? 'HIT' : 'MISS');

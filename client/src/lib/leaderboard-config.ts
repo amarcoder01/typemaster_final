@@ -181,7 +181,7 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     filters: [
       {
         key: "timeframe",
-        type: "tabs",
+        type: "select",
         label: "Time Period",
         options: TIMEFRAME_OPTIONS,
         defaultValue: "all",
@@ -219,6 +219,13 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     aroundMeEndpoint: "/api/code/leaderboard/around-me",
     filters: [
       {
+        key: "timeframe",
+        type: "select",
+        label: "Time Period",
+        options: TIMEFRAME_OPTIONS,
+        defaultValue: "all",
+      },
+      {
         key: "language",
         type: "select",
         label: "Programming Language",
@@ -249,7 +256,15 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     icon: Headphones,
     endpoint: "/api/dictation/leaderboard",
     aroundMeEndpoint: "/api/dictation/leaderboard/around-me",
-    filters: [],
+    filters: [
+      {
+        key: "timeframe",
+        type: "select",
+        label: "Time Period",
+        options: TIMEFRAME_OPTIONS,
+        defaultValue: "all",
+      },
+    ],
     columns: [
       { key: "rank", label: "#", width: "w-12", align: "center" },
       { key: "user", label: "User", width: "flex-1", align: "left" },
@@ -275,8 +290,15 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     aroundMeEndpoint: "/api/stress-test/leaderboard/around-me",
     filters: [
       {
+        key: "timeframe",
+        type: "select",
+        label: "Time Period",
+        options: TIMEFRAME_OPTIONS,
+        defaultValue: "all",
+      },
+      {
         key: "difficulty",
-        type: "tabs",
+        type: "select",
         label: "Difficulty",
         options: STRESS_DIFFICULTY_OPTIONS,
         defaultValue: "all",
@@ -316,10 +338,11 @@ export const LEADERBOARD_MODES: Record<LeaderboardMode, LeaderboardModeConfig> =
     columns: [
       { key: "rank", label: "#", width: "w-12", align: "center", tooltip: "Rank position" },
       { key: "user", label: "User", width: "flex-1", align: "left" },
-      { key: "rating", label: "Rating", width: "w-20", align: "center", tooltip: "ELO rating" },
-      { key: "tier", label: "Tier", width: "w-24", align: "center", tooltip: "Skill tier based on rating" },
-      { key: "wins", label: "Wins", width: "w-16", align: "center", tooltip: "Total race victories" },
-      { key: "totalRaces", label: "Races", width: "w-16", align: "center", tooltip: "Total races participated" },
+      { key: "rating", label: "Rating", width: "w-16", align: "center", tooltip: "ELO rating" },
+      { key: "wpm", label: "WPM", width: "w-16", align: "center", tooltip: "Average Words Per Minute" },
+      { key: "tier", label: "Tier", width: "w-20", align: "center", tooltip: "Skill tier based on rating" },
+      { key: "wins", label: "Wins", width: "w-14", align: "center", tooltip: "Total race victories" },
+      { key: "totalRaces", label: "Races", width: "w-14", align: "center", tooltip: "Total races participated" },
     ],
     color: "text-green-500",
     bgColor: "bg-green-500/10",

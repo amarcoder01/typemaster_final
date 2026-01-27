@@ -343,8 +343,9 @@ async function seedRatingMode(userCount: number, dryRun: boolean) {
   const seedUsers = createSeedUsers(userCount);
   console.log(`   ✓ Generated ${seedUsers.length} users`);
   
-  const ratings = generateRatings(seedUsers);
-  console.log(`   ✓ Generated ${ratings.length} ratings\n`);
+  const { ratings, matchHistory } = generateRatings(seedUsers);
+  console.log(`   ✓ Generated ${ratings.length} ratings`);
+  console.log(`   ✓ Generated ${matchHistory.length} match history entries for WPM data\n`);
   
   if (dryRun) {
     console.log('✓ Dry run complete - no data saved');
@@ -352,20 +353,69 @@ async function seedRatingMode(userCount: number, dryRun: boolean) {
   }
   
   const { db } = await import('../storage.js');
-  const { users, userRatings } = await import('@shared/schema');
+  const { users, userRatings, races, raceParticipants, raceMatchHistory } = await import('@shared/schema');
   
   console.log('Inserting into database...');
   const insertUsers = seedUsers.map(toInsertUser);
   const batchSize = 50;
   
+  // Insert users
   for (let i = 0; i < insertUsers.length; i += batchSize) {
     const batch = insertUsers.slice(i, i + batchSize);
     await db.insert(users).values(batch);
   }
   
+  // Insert ratings
   for (let i = 0; i < ratings.length; i += batchSize) {
     const batch = ratings.slice(i, i + batchSize);
     await db.insert(userRatings).values(batch);
+  }
+  
+  // Create a dummy race for match history foreign key
+  const [dummyRace] = await db.insert(races).values({
+    roomCode: 'SEED01',
+    status: 'finished',
+    raceType: 'standard',
+    paragraphContent: 'This is a dummy race created for seeding match history data.',
+    maxPlayers: 4,
+    isPrivate: 0,
+    finishCounter: 4,
+    startedAt: new Date(Date.now() - 60000),
+    finishedAt: new Date(),
+  }).returning();
+  
+  // Create dummy participants for match history
+  const participantMap = new Map<string, number>();
+  for (const user of seedUsers) {
+    const [participant] = await db.insert(raceParticipants).values({
+      raceId: dummyRace.id,
+      userId: user.id,
+      username: user.username,
+      avatarColor: user.avatarColor || 'bg-primary',
+      isBot: 0,
+      isActive: 0,
+      progress: 100,
+      wpm: 60,
+      accuracy: 95,
+      errors: 2,
+      isFinished: 1,
+      finishPosition: 1,
+      finishedAt: new Date(),
+    }).returning();
+    participantMap.set(user.id, participant.id);
+  }
+  
+  // Update match history with correct raceId and participantId
+  const updatedMatchHistory = matchHistory.map(mh => ({
+    ...mh,
+    raceId: dummyRace.id,
+    participantId: participantMap.get(mh.userId) || 1,
+  }));
+  
+  // Insert match history for WPM data
+  for (let i = 0; i < updatedMatchHistory.length; i += batchSize) {
+    const batch = updatedMatchHistory.slice(i, i + batchSize);
+    await db.insert(raceMatchHistory).values(batch);
   }
   
   console.log('   ✓ All data inserted successfully');

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trophy, Medal, Clock, Target, ChevronLeft, ChevronRight, ShieldCheck, User, AlertCircle, RefreshCw, Info, Wifi, WifiOff, Ban, Globe, HelpCircle } from "lucide-react";
+import { Trophy, Medal, Clock, Target, ChevronLeft, ChevronRight, ShieldCheck, User, AlertCircle, RefreshCw, WifiOff, Ban, Globe, HelpCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useSEO, SEO_CONFIGS } from '@/lib/seo';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { motion } from "framer-motion";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -206,12 +206,25 @@ const LANGUAGE_DESCRIPTIONS: Record<string, string> = {
   id: "Indonesian language typing",
 };
 
+type SortOption = "rank" | "wpm" | "accuracy" | "tests";
+
+const SORT_OPTIONS: { value: SortOption; label: string; description: string }[] = [
+  { value: "rank", label: "Rank", description: "Default ranking by WPM" },
+  { value: "wpm", label: "WPM", description: "Sort by words per minute" },
+  { value: "accuracy", label: "Accuracy", description: "Sort by typing accuracy" },
+  { value: "tests", label: "Tests", description: "Sort by total tests completed" },
+];
+
 function LeaderboardContent() {
   useSEO(SEO_CONFIGS.leaderboard);
+  const queryClient = useQueryClient();
   const [timeframe, setTimeframe] = useState<Timeframe>("all");
   const [offset, setOffset] = useState(0);
   const [language, setLanguage] = useState<string>("en");
+  const [sortBy, setSortBy] = useState<SortOption>("rank");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [recentlyUpdatedIds, setRecentlyUpdatedIds] = useState<Set<string>>(new Set());
   const limit = 15;
 
   useEffect(() => {
@@ -328,7 +341,7 @@ function LeaderboardContent() {
   const [liveEntries, setLiveEntries] = useState<LeaderboardEntry[]>([]);
   const [realtimeUpdateCount, setRealtimeUpdateCount] = useState(0);
 
-  const { isConnected: wsConnected, lastUpdate } = useLeaderboardWebSocket({
+  const { isConnected: wsConnected, lastUpdate, isReconnecting, connectionState, isUsingFallback } = useLeaderboardWebSocket({
     mode: 'global',
     timeframe,
     language,
@@ -336,6 +349,18 @@ function LeaderboardContent() {
     enabled: true,
     onUpdate: (update) => {
       setRealtimeUpdateCount(prev => prev + 1);
+      
+      // Mark entry as recently updated for animation
+      setRecentlyUpdatedIds(prev => new Set([...prev, update.entry.userId]));
+      
+      // Clear the animation after 3 seconds
+      setTimeout(() => {
+        setRecentlyUpdatedIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(update.entry.userId);
+          return newSet;
+        });
+      }, 3000);
 
       // Update the entries list with the new data
       setLiveEntries(prevEntries => {
@@ -351,8 +376,8 @@ function LeaderboardContent() {
             accuracy: update.entry.accuracy,
           };
           return updated;
-        } else if (update.type === 'new_entry') {
-          // Add new entry
+        } else if (update.updateType === 'new_entry' || update.type === 'new_entry') {
+          // Add new entry (supports both old and new message format)
           return [...prevEntries, {
             userId: update.entry.userId,
             username: update.entry.username,
@@ -371,29 +396,56 @@ function LeaderboardContent() {
     },
   });
 
-  // Merge live updates with cached data
+  // Auto-refetch when WebSocket update is for current user (ensures rank shows immediately after test)
+  useEffect(() => {
+    if (lastUpdate && userData?.user?.id && lastUpdate.entry?.userId === userData.user.id) {
+      // Invalidate and refetch leaderboard data when current user's data is updated
+      queryClient.invalidateQueries({ queryKey: ["leaderboard-batched"] });
+      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
+    }
+  }, [lastUpdate, userData?.user?.id, queryClient]);
+
+  // Merge live updates with cached data and apply sorting
   const entries: LeaderboardEntry[] = useMemo(() => {
     const baseEntries = data?.entries || [];
+    let result = [...baseEntries];
 
     // If we have live updates, merge them
     if (liveEntries.length > 0) {
-      const merged = [...baseEntries];
-
       liveEntries.forEach(liveEntry => {
-        const existingIndex = merged.findIndex(e => e.userId === liveEntry.userId);
+        const existingIndex = result.findIndex(e => e.userId === liveEntry.userId);
         if (existingIndex >= 0) {
-          merged[existingIndex] = liveEntry;
+          result[existingIndex] = liveEntry;
         } else {
-          merged.push(liveEntry);
+          result.push(liveEntry);
         }
       });
-
-      // Re-sort by rank
-      return merged.sort((a, b) => Number(a.rank) - Number(b.rank));
     }
 
-    return baseEntries;
-  }, [data?.entries, liveEntries]);
+    // Apply sorting
+    const sortFn = (a: LeaderboardEntry, b: LeaderboardEntry) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case "wpm":
+          comparison = safeNumber(a.wpm) - safeNumber(b.wpm);
+          break;
+        case "accuracy":
+          comparison = safeNumber(a.accuracy) - safeNumber(b.accuracy);
+          break;
+        case "tests":
+          comparison = safeNumber(a.totalTests) - safeNumber(b.totalTests);
+          break;
+        case "rank":
+        default:
+          // For rank, lower is better so reverse the comparison
+          comparison = safeNumber(b.rank) - safeNumber(a.rank);
+          break;
+      }
+      return sortOrder === "desc" ? -comparison : comparison;
+    };
+
+    return result.sort(sortFn);
+  }, [data?.entries, liveEntries, sortBy, sortOrder]);
   const pagination = data?.pagination || { total: 0, hasMore: false };
   const currentPage = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(pagination.total / limit));
@@ -473,27 +525,20 @@ function LeaderboardContent() {
     }
   };
 
+  const connectionBanner = useMemo(() => {
+    if (!isOnline) return "offline";
+    if (isUsingFallback) return "fallback";
+    if (connectionState === "reconnecting" || isReconnecting) return "reconnecting";
+    if (connectionState === "failed") return "failed";
+    if (wsConnected) return "live";
+    return "none";
+  }, [isOnline, isUsingFallback, connectionState, isReconnecting, wsConnected]);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="max-w-5xl mx-auto px-4 sm:px-0">
-        {/* Real-time connection indicator */}
-        {wsConnected && realtimeUpdateCount > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2 text-green-500"
-          >
-            <div className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-            </div>
-            <span className="text-sm font-medium">
-              Live updates active • {realtimeUpdateCount} update{realtimeUpdateCount !== 1 ? 's' : ''} received
-            </span>
-          </motion.div>
-        )}
-
-        {!isOnline && (
+        {/* Offline warning - only show when truly offline */}
+        {connectionBanner === "offline" && (
           <div className="mb-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg flex items-center gap-2 text-orange-500">
             <WifiOff className="w-4 h-4" />
             <span className="text-sm">You're offline. Some features may not work.</span>
@@ -503,8 +548,26 @@ function LeaderboardContent() {
         <div className="flex flex-col items-center gap-3 sm:gap-4 mb-6 sm:mb-10">
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="p-2.5 sm:p-3 rounded-full bg-primary/10 text-primary cursor-help">
+              <div className="relative p-2.5 sm:p-3 rounded-full bg-primary/10 text-primary cursor-help">
                 <Trophy className="w-6 h-6 sm:w-8 sm:h-8" />
+                {/* Live indicator dot */}
+                {connectionBanner === "live" && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                  </span>
+                )}
+                {connectionBanner === "reconnecting" && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                    <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
+                  </span>
+                )}
+                {(connectionBanner === "failed" || connectionBanner === "offline") && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                  </span>
+                )}
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
@@ -512,6 +575,12 @@ function LeaderboardContent() {
               <p className="text-xs text-muted-foreground mt-1">
                 Compare your typing speed with players worldwide. Rankings are based on your best WPM score.
               </p>
+              {connectionBanner === "live" && (
+                <p className="text-xs text-green-500 mt-1">Live updates active</p>
+              )}
+              {connectionBanner === "reconnecting" && (
+                <p className="text-xs text-yellow-500 mt-1">Reconnecting...</p>
+              )}
             </TooltipContent>
           </Tooltip>
           <h1 className="text-2xl sm:text-3xl font-bold">Global Leaderboard</h1>
@@ -524,9 +593,9 @@ function LeaderboardContent() {
           </a>
         </div>
 
-        <div className="mb-6 flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="w-full sm:w-auto">
+        <div className="mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3 w-full sm:w-auto">
               <SearchableSelect
                 value={timeframe}
                 onValueChange={(v) => handleTimeframeChange(v)}
@@ -540,10 +609,98 @@ function LeaderboardContent() {
                 searchPlaceholder="Search period..."
                 emptyText="No period found."
                 icon={<Clock className="w-4 h-4" />}
-                triggerClassName="w-full sm:w-[200px]"
+                triggerClassName="w-full sm:w-[180px]"
                 contentClassName="max-h-[300px] overflow-y-auto"
                 data-testid="timeframe-dropdown"
               />
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <SearchableSelect
+                      value={language}
+                      onValueChange={handleLanguageChange}
+                      options={VALID_LANGUAGES.map((code) => ({
+                        value: code,
+                        label: LANGUAGE_NAMES[code],
+                      }))}
+                      placeholder="Select language"
+                      searchPlaceholder="Search languages..."
+                      emptyText="No language found."
+                      icon={<Globe className="w-4 h-4" />}
+                      triggerClassName="w-full sm:w-[180px]"
+                      contentClassName="max-h-[300px] overflow-y-auto"
+                      data-testid="language-selector"
+                    />
+                    <button
+                      type="button"
+                      className="text-muted-foreground/60 hover:text-muted-foreground transition-colors flex-shrink-0"
+                      aria-label="Language help"
+                      data-testid="language-help-button"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm" side="bottom">
+                  <div className="space-y-2">
+                    <p className="font-medium">Language Filter</p>
+                    <p className="text-xs text-muted-foreground">
+                      Filter leaderboard by typing language. Only scores from tests typed in the selected language will appear.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>Current:</strong> {LANGUAGE_NAMES[language]} - {LANGUAGE_DESCRIPTIONS[language]}
+                    </p>
+                    <p className="text-xs text-primary">
+                      💡 Supports 23 languages with search functionality
+                    </p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Sorting Controls */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1 w-full sm:w-auto">
+                      <SearchableSelect
+                        value={sortBy}
+                        onValueChange={(v) => setSortBy(v as SortOption)}
+                        options={SORT_OPTIONS.map((opt) => ({
+                          value: opt.value,
+                          label: opt.label,
+                        }))}
+                        placeholder="Sort by"
+                        searchPlaceholder="Search..."
+                        emptyText="No option found."
+                        icon={<ArrowUpDown className="w-4 h-4" />}
+                        triggerClassName="w-full sm:w-[130px]"
+                        contentClassName="max-h-[300px] overflow-y-auto"
+                        data-testid="sort-by-dropdown"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+                        className="h-9 w-9"
+                        aria-label={sortOrder === "desc" ? "Sort descending" : "Sort ascending"}
+                      >
+                        {sortOrder === "desc" ? (
+                          <ArrowDown className="w-4 h-4" />
+                        ) : (
+                          <ArrowUp className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Sort by {SORT_OPTIONS.find(o => o.value === sortBy)?.description}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {sortOrder === "desc" ? "Highest first" : "Lowest first"}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
 
             {userData?.user && (
@@ -566,70 +723,8 @@ function LeaderboardContent() {
               </Tooltip>
             )}
           </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-muted-foreground" />
-                  <SearchableSelect
-                    value={language}
-                    onValueChange={handleLanguageChange}
-                    options={VALID_LANGUAGES.map((code) => ({
-                      value: code,
-                      label: LANGUAGE_NAMES[code],
-                    }))}
-                    placeholder="Select language"
-                    searchPlaceholder="Search languages..."
-                    emptyText="No language found."
-                    icon={<Globe className="w-4 h-4" />}
-                    triggerClassName="w-[200px]"
-                    contentClassName="max-h-[300px] overflow-y-auto"
-                    data-testid="language-selector"
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-sm" side="bottom">
-                <div className="space-y-2">
-                  <p className="font-medium">Language Filter</p>
-                  <p className="text-xs text-muted-foreground">
-                    Filter leaderboard by typing language. Only scores from tests typed in the selected language will appear.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    <strong>Current:</strong> {LANGUAGE_NAMES[language]} - {LANGUAGE_DESCRIPTIONS[language]}
-                  </p>
-                  <p className="text-xs text-primary">
-                    💡 Supports 23 languages with search functionality
-                  </p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                  aria-label="Language help"
-                  data-testid="language-help-button"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <div className="space-y-2">
-                  <p className="font-medium">How Language Filtering Works</p>
-                  <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                    <li>Rankings are separate per language</li>
-                    <li>Freestyle scores never count in rankings</li>
-                    <li>Use search to quickly find your language</li>
-                    <li>Changing language resets pagination</li>
-                    <li>Your rank updates automatically</li>
-                  </ul>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </div>
         </div>
+
 
         {/* Your Rank Card - Prominent Display */}
         {userData?.user && (
@@ -768,22 +863,39 @@ function LeaderboardContent() {
                     </Tooltip>
                   </div>
 
-                  {entries.map((entry: LeaderboardEntry) => {
-                    const rank = safeNumber(entry.rank, 999);
+                  {entries.map((entry: LeaderboardEntry, index: number) => {
+                    const computedRank = offset + index + 1;
+                    const rankValue = safeNumber(entry.rank, NaN);
+                    const rank = rankValue > 0 ? rankValue : computedRank;
                     const isCurrentUser = userData?.user?.id === entry.userId;
                     const username = safeString(entry.username);
                     const wpm = safeNumber(entry.wpm);
                     const accuracy = safeNumber(entry.accuracy);
                     const totalTests = safeNumber(entry.totalTests, 1);
+                    const isRecentlyUpdated = recentlyUpdatedIds.has(entry.userId);
 
                     return (
-                      <div
+                      <motion.div
                         key={`${entry.userId}-${entry.createdAt || rank}`}
-                        className={`
-                          px-4 py-4 transition-all duration-200 border-b last:border-b-0
-                          hover:bg-slate-800/30 hover:shadow-sm
-                          ${isCurrentUser ? 'bg-primary/10 border-l-2 border-primary' : ''}
-                        `}
+                        initial={isRecentlyUpdated ? { scale: 1.02, backgroundColor: "rgba(34, 197, 94, 0.15)" } : false}
+                        animate={{ 
+                          scale: 1, 
+                          backgroundColor: isRecentlyUpdated 
+                            ? ["rgba(34, 197, 94, 0.15)", "rgba(34, 197, 94, 0.05)", "transparent"]
+                            : "transparent"
+                        }}
+                        transition={{ 
+                          duration: isRecentlyUpdated ? 2 : 0.2,
+                          ease: "easeOut"
+                        }}
+                        layout
+                        layoutId={entry.userId}
+                        className={cn(
+                          "px-4 py-4 transition-all duration-200 border-b last:border-b-0",
+                          "hover:bg-slate-800/30 hover:shadow-sm",
+                          isCurrentUser && "bg-primary/10 border-l-2 border-primary",
+                          isRecentlyUpdated && "ring-1 ring-green-500/30"
+                        )}
                       >
                         {/* Mobile card layout */}
                         <div className="md:hidden flex flex-col gap-3">
@@ -950,7 +1062,7 @@ function LeaderboardContent() {
                             </span>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })}
                 </div>

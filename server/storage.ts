@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import crypto from "node:crypto";
+import { VALID_LANGUAGES } from "../shared/leaderboard-filters";
 import {
   users,
   testResults,
@@ -379,7 +380,7 @@ export interface IStorage {
   getLeaderboardCount(timeframe?: string, language?: string): Promise<number>;
   getLeaderboardAroundUser(userId: string, range?: number, timeframe?: string, language?: string): Promise<{ userRank: number; entries: any[] }>;
 
-  getStressTestLeaderboardPaginated(difficulty: string | undefined, limit: number, offset: number): Promise<Array<{
+  getStressTestLeaderboardPaginated(difficulty: string | undefined, timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     difficulty: string;
@@ -392,10 +393,10 @@ export interface IStorage {
     rank: number;
     isVerified: boolean;
   }>>;
-  getStressTestLeaderboardCount(difficulty?: string): Promise<number>;
-  getStressLeaderboardAroundUser(userId: string, difficulty: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
+  getStressTestLeaderboardCount(difficulty?: string, timeframe?: string): Promise<number>;
+  getStressLeaderboardAroundUser(userId: string, difficulty: string | undefined, timeframe: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
 
-  getCodeLeaderboardPaginated(language: string | undefined, limit: number, offset: number): Promise<Array<{
+  getCodeLeaderboardPaginated(language: string | undefined, timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     wpm: number;
@@ -408,14 +409,14 @@ export interface IStorage {
     rank: number;
     isVerified: boolean;
   }>>;
-  getCodeLeaderboardCount(language?: string): Promise<number>;
-  getCodeLeaderboardAroundUser(userId: string, language: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
+  getCodeLeaderboardCount(language?: string, timeframe?: string): Promise<number>;
+  getCodeLeaderboardAroundUser(userId: string, language: string | undefined, timeframe: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
 
   getRatingLeaderboardPaginated(tier: string | undefined, limit: number, offset: number): Promise<any[]>;
   getRatingLeaderboardCount(tier?: string): Promise<number>;
   getRatingLeaderboardAroundUser(userId: string, tier: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
 
-  getDictationLeaderboardPaginated(limit: number, offset: number): Promise<Array<{
+  getDictationLeaderboardPaginated(timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     wpm: number;
@@ -426,8 +427,8 @@ export interface IStorage {
     totalTests: number;
     rank: number;
   }>>;
-  getDictationLeaderboardCount(): Promise<number>;
-  getDictationLeaderboardAroundUser(userId: string, range?: number): Promise<{ userRank: number; entries: any[] }>;
+  getDictationLeaderboardCount(timeframe?: string): Promise<number>;
+  getDictationLeaderboardAroundUser(userId: string, timeframe: string | undefined, range?: number): Promise<{ userRank: number; entries: any[] }>;
 
   getBookLeaderboardPaginated(topic: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
@@ -1624,9 +1625,7 @@ export class DatabaseStorage implements IStorage {
 
   // SECURITY FIX: Validate language parameter to prevent SQL injection
   private validateLanguage(language: string): string {
-    // Whitelist of valid language codes
-    const validLanguages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar', 'hi', 'nl', 'pl', 'sv', 'tr', 'vi', 'th', 'id', 'ms'];
-    if (!validLanguages.includes(language)) {
+    if (!VALID_LANGUAGES.includes(language as any)) {
       console.warn(`[Storage] Invalid language code: ${language}, defaulting to 'en'`);
       return 'en';
     }
@@ -1665,8 +1664,8 @@ export class DatabaseStorage implements IStorage {
     const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 10)));
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
 
-    const leaderboard = await db.execute(sql.raw(`
-        SELECT 
+    const leaderboard = await db.execute(sql`
+      SELECT 
         user_id as "userId",
         username,
         wpm,
@@ -1677,12 +1676,12 @@ export class DatabaseStorage implements IStorage {
         total_tests as "totalTests",
         rank,
         is_verified as "isVerified"
-      FROM ${viewName}
-      WHERE language = '${safeLanguage}'
+      FROM ${sql.raw(viewName)}
+      WHERE language = ${safeLanguage}
       ORDER BY rank ASC
       LIMIT ${safeLimit}
       OFFSET ${safeOffset}
-    `));
+    `);
 
     return leaderboard.rows as any[];
   }
@@ -1710,11 +1709,11 @@ export class DatabaseStorage implements IStorage {
     // SECURITY FIX: Validate language to prevent SQL injection
     const safeLanguage = this.validateLanguage(language);
 
-    const result = await db.execute(sql.raw(`
+    const result = await db.execute(sql`
       SELECT COUNT(*)::int as count
-      FROM ${viewName}
-      WHERE language = '${safeLanguage}'
-    `));
+      FROM ${sql.raw(viewName)}
+      WHERE language = ${safeLanguage}
+    `);
 
     return (result.rows[0] as any)?.count || 0;
   }
@@ -1728,23 +1727,30 @@ export class DatabaseStorage implements IStorage {
     const safeUserId = this.sanitizeUUID(userId);
     const safeRange = Math.max(1, Math.min(50, Math.floor(Number(range) || 5)));
 
-    const rankResult = await db.execute(sql.raw(`
+    // First try materialized view (fast path)
+    const rankResult = await db.execute(sql`
       SELECT rank
-      FROM ${viewName}
-      WHERE user_id = '${safeUserId}' AND language = '${safeLanguage}'
-    `));
+      FROM ${sql.raw(viewName)}
+      WHERE user_id = ${safeUserId} AND language = ${safeLanguage}
+    `);
 
-    const userRank = (rankResult.rows[0] as any)?.rank || -1;
+    let userRank = (rankResult.rows[0] as any)?.rank || -1;
 
+    // FALLBACK: If user not found in materialized view (e.g., just completed test),
+    // query directly from test_results table for real-time accuracy
     if (userRank === -1) {
+      const fallbackResult = await this.getLeaderboardAroundUserFallback(safeUserId, safeRange, timeframe, safeLanguage);
+      if (fallbackResult.userRank > 0) {
+        return fallbackResult;
+      }
       return { userRank: -1, entries: [] };
     }
 
     const startRank = Math.max(1, userRank - safeRange);
     const endRank = userRank + safeRange;
 
-    const entries = await db.execute(sql.raw(`
-        SELECT 
+    const entries = await db.execute(sql`
+      SELECT 
         user_id as "userId",
         username,
         wpm,
@@ -1754,17 +1760,110 @@ export class DatabaseStorage implements IStorage {
         avatar_color as "avatarColor",
         total_tests as "totalTests",
         rank
-      FROM ${viewName}
-      WHERE language = '${safeLanguage}'
+      FROM ${sql.raw(viewName)}
+      WHERE language = ${safeLanguage}
         AND rank >= ${startRank} 
         AND rank <= ${endRank}
       ORDER BY rank ASC
-    `));
+    `);
 
     return { userRank, entries: entries.rows as any[] };
   }
 
-  async getStressTestLeaderboardPaginated(difficulty: string | undefined, limit: number, offset: number): Promise<Array<{
+  /**
+   * Fallback query for real-time leaderboard data when user not in materialized view
+   * This queries the test_results table directly with proper timeframe filtering
+   */
+  private async getLeaderboardAroundUserFallback(
+    userId: string,
+    range: number,
+    timeframe: string | undefined,
+    language: string
+  ): Promise<{ userRank: number; entries: any[] }> {
+    // Build date filter based on timeframe
+    const dateFilter = timeframe && timeframe !== 'all'
+      ? sql`AND tr.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+
+    // Get user's rank from live data
+    const rankQuery = await db.execute(sql`
+      WITH user_best_scores AS (
+        SELECT 
+          tr.user_id,
+          MAX(tr.wpm) as best_wpm,
+          MAX(tr.accuracy) as best_accuracy
+        FROM test_results tr
+        INNER JOIN users u ON tr.user_id = u.id
+        WHERE tr.language = ${language} ${dateFilter}
+        GROUP BY tr.user_id
+      ),
+      ranked_users AS (
+        SELECT 
+          user_id,
+          best_wpm,
+          DENSE_RANK() OVER (ORDER BY best_wpm DESC) as rank
+        FROM user_best_scores
+      )
+      SELECT rank FROM ranked_users WHERE user_id = ${userId}
+    `);
+
+    const userRank = (rankQuery.rows[0] as any)?.rank || -1;
+
+    if (userRank === -1) {
+      return { userRank: -1, entries: [] };
+    }
+
+    const startRank = Math.max(1, userRank - range);
+    const endRank = userRank + range;
+
+    // Get entries around user from live data
+    const entriesQuery = await db.execute(sql`
+      WITH user_best_scores AS (
+        SELECT 
+          tr.user_id,
+          MAX(tr.wpm) as best_wpm,
+          MAX(tr.accuracy) FILTER (WHERE tr.wpm = (SELECT MAX(wpm) FROM test_results WHERE user_id = tr.user_id AND language = ${language} ${dateFilter})) as best_accuracy,
+          MAX(tr.mode) FILTER (WHERE tr.wpm = (SELECT MAX(wpm) FROM test_results WHERE user_id = tr.user_id AND language = ${language} ${dateFilter})) as mode,
+          MAX(tr.created_at) as last_test,
+          COUNT(*)::int as total_tests
+        FROM test_results tr
+        INNER JOIN users u ON tr.user_id = u.id
+        WHERE tr.language = ${language} ${dateFilter}
+        GROUP BY tr.user_id
+      ),
+      ranked_users AS (
+        SELECT 
+          ubs.user_id,
+          ubs.best_wpm as wpm,
+          ubs.best_accuracy as accuracy,
+          ubs.mode,
+          ubs.last_test as created_at,
+          ubs.total_tests,
+          u.username,
+          u.avatar_color,
+          DENSE_RANK() OVER (ORDER BY ubs.best_wpm DESC) as rank
+        FROM user_best_scores ubs
+        INNER JOIN users u ON ubs.user_id = u.id
+      )
+      SELECT 
+        user_id as "userId",
+        username,
+        wpm,
+        accuracy,
+        created_at as "createdAt",
+        mode,
+        avatar_color as "avatarColor",
+        total_tests as "totalTests",
+        rank
+      FROM ranked_users
+      WHERE rank >= ${startRank} AND rank <= ${endRank}
+      ORDER BY rank ASC
+    `);
+
+    return { userRank, entries: entriesQuery.rows as any[] };
+  }
+
+  async getStressTestLeaderboardPaginated(difficulty: string | undefined, timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     difficulty: string;
@@ -1778,6 +1877,9 @@ export class DatabaseStorage implements IStorage {
     isVerified: boolean;
   }>> {
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND st.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     // When difficulty is specified, partition by user_id AND difficulty (one best per difficulty)
     // When showing all difficulties, partition by user_id only (one best overall)
@@ -1800,33 +1902,40 @@ export class DatabaseStorage implements IStorage {
             ORDER BY st.stress_score DESC, st.wpm DESC, st.created_at DESC
           ) as user_rank
         FROM stress_tests st
-        WHERE 1=1 ${difficultyFilter}
+        WHERE 1=1 ${difficultyFilter} ${dateFilter}
       ),
       best_scores AS (
         SELECT * FROM ranked_scores WHERE user_rank = 1
       ),
-      final_ranking AS (
+      valid_users AS (
         SELECT 
           bs.*,
-          DENSE_RANK() OVER (
-            ORDER BY bs.stress_score DESC, bs.wpm DESC, bs.created_at ASC
-          ) as rank
+          u.username,
+          u.avatar_color
         FROM best_scores bs
+        INNER JOIN users u ON bs.user_id = u.id
+      ),
+      final_ranking AS (
+        SELECT 
+          vu.*,
+          DENSE_RANK() OVER (
+            ORDER BY vu.stress_score DESC, vu.wpm DESC, vu.created_at ASC
+          ) as rank
+        FROM valid_users vu
       )
       SELECT 
         fr.user_id as "userId",
-        u.username,
+        fr.username,
         fr.difficulty,
         fr.stress_score as "stressScore",
         fr.wpm,
         fr.accuracy,
         fr.completion_rate as "completionRate",
-        u.avatar_color as "avatarColor",
+        fr.avatar_color as "avatarColor",
         fr.created_at as "createdAt",
         fr.rank,
         COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
       FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
       LEFT JOIN anti_cheat_challenges acc ON fr.user_id = acc.user_id AND acc.passed = true
       ORDER BY fr.rank ASC
       LIMIT ${limit}
@@ -1836,20 +1945,26 @@ export class DatabaseStorage implements IStorage {
     return leaderboard.rows as any[];
   }
 
-  async getStressTestLeaderboardCount(difficulty?: string): Promise<number> {
+  async getStressTestLeaderboardCount(difficulty?: string, timeframe?: string): Promise<number> {
     const difficultyFilter = difficulty ? sql`AND difficulty = ${difficulty}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count
       FROM stress_tests
-      WHERE 1=1 ${difficultyFilter}
+      WHERE 1=1 ${difficultyFilter} ${dateFilter}
     `);
 
     return (result.rows[0] as any)?.count || 0;
   }
 
-  async getStressLeaderboardAroundUser(userId: string, difficulty: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
+  async getStressLeaderboardAroundUser(userId: string, difficulty: string | undefined, timeframe: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
     const difficultyFilter = difficulty ? sql`AND st.difficulty = ${difficulty}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND st.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     const rankResult = await db.execute(sql`
       WITH ranked_scores AS (
@@ -1861,7 +1976,7 @@ export class DatabaseStorage implements IStorage {
             ORDER BY st.stress_score DESC
           ) as user_rank
         FROM stress_tests st
-        WHERE 1=1 ${difficultyFilter}
+        WHERE 1=1 ${difficultyFilter} ${dateFilter}
       ),
       user_best AS (
         SELECT user_id, stress_score FROM ranked_scores WHERE user_rank = 1
@@ -1900,7 +2015,7 @@ export class DatabaseStorage implements IStorage {
             ORDER BY st.stress_score DESC
           ) as user_rank
         FROM stress_tests st
-        WHERE 1=1 ${difficultyFilter}
+        WHERE 1=1 ${difficultyFilter} ${dateFilter}
       ),
       best_scores AS (
         SELECT * FROM ranked_scores WHERE user_rank = 1
@@ -1931,7 +2046,7 @@ export class DatabaseStorage implements IStorage {
     return { userRank, entries: entries.rows as any[] };
   }
 
-  async getCodeLeaderboardPaginated(language: string | undefined, limit: number, offset: number): Promise<Array<{
+  async getCodeLeaderboardPaginated(language: string | undefined, timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     wpm: number;
@@ -1945,6 +2060,14 @@ export class DatabaseStorage implements IStorage {
     isVerified: boolean;
   }>> {
     const languageFilter = language ? sql`AND ct.programming_language = ${language}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND ct.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+    // For test_counts CTE, we need filters without the ct. alias
+    const languageFilterNoAlias = language ? sql`AND programming_language = ${language}` : sql``;
+    const dateFilterNoAlias = timeframe && timeframe !== "all" 
+      ? sql`AND created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     const leaderboard = await db.execute(sql`
       WITH ranked_results AS (
@@ -1960,17 +2083,17 @@ export class DatabaseStorage implements IStorage {
             ORDER BY ct.wpm DESC, ct.created_at DESC
           ) as user_rank
         FROM code_typing_tests ct
-        WHERE 1=1 ${languageFilter}
+        WHERE 1=1 ${languageFilter} ${dateFilter}
       ),
       test_counts AS (
         SELECT 
           user_id,
           COUNT(*)::int as total_tests
         FROM code_typing_tests
-        WHERE 1=1 ${languageFilter}
+        WHERE 1=1 ${languageFilterNoAlias} ${dateFilterNoAlias}
         GROUP BY user_id
       ),
-      final_ranking AS (
+      valid_users AS (
         SELECT 
           rr.user_id,
           rr.wpm,
@@ -1979,25 +2102,32 @@ export class DatabaseStorage implements IStorage {
           rr.framework,
           rr.created_at,
           tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC, rr.created_at ASC) as rank
+          u.username,
+          u.avatar_color
         FROM ranked_results rr
+        INNER JOIN users u ON rr.user_id = u.id
         LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
         WHERE rr.user_rank = 1
+      ),
+      final_ranking AS (
+        SELECT 
+          vu.*,
+          DENSE_RANK() OVER (ORDER BY vu.wpm DESC, vu.created_at ASC) as rank
+        FROM valid_users vu
       )
       SELECT 
         fr.user_id as "userId",
-        u.username,
+        fr.username,
         fr.wpm,
         fr.accuracy,
         fr.programming_language as "programmingLanguage",
         fr.framework,
         fr.created_at as "createdAt",
-        u.avatar_color as "avatarColor",
+        fr.avatar_color as "avatarColor",
         COALESCE(fr.total_tests, 1) as "totalTests",
         fr.rank,
         COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
       FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
       LEFT JOIN anti_cheat_challenges acc ON fr.user_id = acc.user_id AND acc.passed = true
       ORDER BY fr.rank ASC
       LIMIT ${limit}
@@ -2007,20 +2137,29 @@ export class DatabaseStorage implements IStorage {
     return leaderboard.rows as any[];
   }
 
-  async getCodeLeaderboardCount(language?: string): Promise<number> {
+  async getCodeLeaderboardCount(language?: string, timeframe?: string): Promise<number> {
     const languageFilter = language ? sql`AND programming_language = ${language}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     const result = await db.execute(sql`
       SELECT COUNT(DISTINCT user_id)::int as count
       FROM code_typing_tests
-      WHERE 1=1 ${languageFilter}
+      WHERE 1=1 ${languageFilter} ${dateFilter}
     `);
 
     return (result.rows[0] as any)?.count || 0;
   }
 
-  async getCodeLeaderboardAroundUser(userId: string, language: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
+  async getCodeLeaderboardAroundUser(userId: string, language: string | undefined, timeframe: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
     const languageFilter = language ? sql`AND ct.programming_language = ${language}` : sql``;
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`AND ct.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+    const dateFilterNoAlias = timeframe && timeframe !== "all" 
+      ? sql`AND created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
 
     const rankResult = await db.execute(sql`
       WITH ranked_results AS (
@@ -2032,7 +2171,7 @@ export class DatabaseStorage implements IStorage {
             ORDER BY ct.wpm DESC
           ) as user_rank
         FROM code_typing_tests ct
-        WHERE 1=1 ${languageFilter}
+        WHERE 1=1 ${languageFilter} ${dateFilter}
       ),
       user_best AS (
         SELECT user_id, wpm FROM ranked_results WHERE user_rank = 1
@@ -2070,10 +2209,10 @@ export class DatabaseStorage implements IStorage {
             ORDER BY ct.wpm DESC
           ) as user_rank
         FROM code_typing_tests ct
-        WHERE 1=1 ${languageFilter}
+        WHERE 1=1 ${languageFilter} ${dateFilter}
       ),
       test_counts AS (
-        SELECT user_id, COUNT(*)::int as total_tests FROM code_typing_tests GROUP BY user_id
+        SELECT user_id, COUNT(*)::int as total_tests FROM code_typing_tests WHERE 1=1 ${dateFilterNoAlias} GROUP BY user_id
       ),
       final_ranking AS (
         SELECT 
@@ -2112,10 +2251,12 @@ export class DatabaseStorage implements IStorage {
   async getRatingLeaderboardPaginated(tier: string | undefined, limit: number, offset: number): Promise<any[]> {
     // Optimized single-query approach using SQL with JOIN and proper ranking
     // Eliminates N+1 query problem (was fetching each user separately)
+    // Ranks are calculated AFTER joining with users to avoid gaps from deleted users
+    // Includes average WPM from race match history
     const tierFilter = tier ? sql`WHERE ur.tier = ${tier}` : sql``;
 
     const leaderboard = await db.execute(sql`
-      WITH ranked_ratings AS (
+      WITH valid_ratings AS (
         SELECT 
           ur.user_id,
           ur.rating,
@@ -2125,25 +2266,50 @@ export class DatabaseStorage implements IStorage {
           ur.losses,
           ur.created_at,
           ur.updated_at,
-          DENSE_RANK() OVER (ORDER BY ur.rating DESC, ur.updated_at ASC) as rank
+          u.username,
+          u.avatar_color
         FROM user_ratings ur
+        INNER JOIN users u ON ur.user_id = u.id
         ${tierFilter}
+      ),
+      ranked_ratings AS (
+        SELECT 
+          vr.*,
+          DENSE_RANK() OVER (ORDER BY vr.rating DESC, vr.updated_at ASC) as rank
+        FROM valid_ratings vr
+      ),
+      user_avg_wpm AS (
+        SELECT 
+          rmh.user_id,
+          ROUND(AVG(rmh.wpm)) as avg_wpm
+        FROM race_match_history rmh
+        WHERE rmh.user_id IS NOT NULL
+        GROUP BY rmh.user_id
       )
       SELECT 
         rr.user_id as "userId",
-        u.username,
+        rr.username,
         rr.rating,
         rr.tier,
         rr.total_races as "totalRaces",
         rr.wins,
         rr.losses,
+        COALESCE(uaw.avg_wpm, 
+          CASE 
+            WHEN rr.rating >= 2000 THEN 90 + (rr.rating - 2000) / 50
+            WHEN rr.rating >= 1600 THEN 70 + (rr.rating - 1600) / 20
+            WHEN rr.rating >= 1400 THEN 55 + (rr.rating - 1400) / 13
+            WHEN rr.rating >= 1200 THEN 40 + (rr.rating - 1200) / 13
+            ELSE 30 + rr.rating / 40
+          END
+        )::integer as "wpm",
         rr.created_at as "createdAt",
         rr.updated_at as "updatedAt",
-        u.avatar_color as "avatarColor",
+        rr.avatar_color as "avatarColor",
         rr.rank,
         COALESCE(acc.certified_wpm IS NOT NULL, false) as "isVerified"
       FROM ranked_ratings rr
-      INNER JOIN users u ON rr.user_id = u.id
+      LEFT JOIN user_avg_wpm uaw ON rr.user_id = uaw.user_id
       LEFT JOIN anti_cheat_challenges acc ON rr.user_id = acc.user_id AND acc.passed = true
       ORDER BY rr.rank ASC
       LIMIT ${limit}
@@ -2220,7 +2386,7 @@ export class DatabaseStorage implements IStorage {
     return { userRank, entries: entries.rows as any[] };
   }
 
-  async getDictationLeaderboardPaginated(limit: number, offset: number): Promise<Array<{
+  async getDictationLeaderboardPaginated(timeframe: string | undefined, limit: number, offset: number): Promise<Array<{
     userId: string;
     username: string;
     wpm: number;
@@ -2231,6 +2397,13 @@ export class DatabaseStorage implements IStorage {
     totalTests: number;
     rank: number;
   }>> {
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`WHERE dt.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+    const dateFilterAnd = timeframe && timeframe !== "all" 
+      ? sql`WHERE created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+
     const leaderboard = await db.execute(sql`
       WITH ranked_results AS (
         SELECT 
@@ -2244,11 +2417,12 @@ export class DatabaseStorage implements IStorage {
             ORDER BY dt.wpm DESC, dt.created_at DESC
           ) as user_rank
         FROM dictation_tests dt
+        ${dateFilter}
       ),
       test_counts AS (
-        SELECT user_id, COUNT(*)::int as total_tests FROM dictation_tests GROUP BY user_id
+        SELECT user_id, COUNT(*)::int as total_tests FROM dictation_tests ${dateFilterAnd} GROUP BY user_id
       ),
-      final_ranking AS (
+      valid_users AS (
         SELECT 
           rr.user_id,
           rr.wpm,
@@ -2256,23 +2430,30 @@ export class DatabaseStorage implements IStorage {
           rr.speed_level,
           rr.created_at,
           tc.total_tests,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC, rr.created_at ASC) as rank
+          u.username,
+          u.avatar_color
         FROM ranked_results rr
+        INNER JOIN users u ON rr.user_id = u.id
         LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
         WHERE rr.user_rank = 1
+      ),
+      final_ranking AS (
+        SELECT 
+          vu.*,
+          DENSE_RANK() OVER (ORDER BY vu.wpm DESC, vu.created_at ASC) as rank
+        FROM valid_users vu
       )
       SELECT 
         fr.user_id as "userId",
-        u.username,
+        fr.username,
         fr.wpm,
         fr.accuracy,
         fr.speed_level as "speedLevel",
         fr.created_at as "createdAt",
-        u.avatar_color as "avatarColor",
+        fr.avatar_color as "avatarColor",
         COALESCE(fr.total_tests, 1) as "totalTests",
         fr.rank
       FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
       ORDER BY fr.rank ASC
       LIMIT ${limit}
       OFFSET ${offset}
@@ -2281,15 +2462,26 @@ export class DatabaseStorage implements IStorage {
     return leaderboard.rows as any[];
   }
 
-  async getDictationLeaderboardCount(): Promise<number> {
+  async getDictationLeaderboardCount(timeframe?: string): Promise<number> {
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`WHERE created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+
     const result = await db.execute(sql`
-      SELECT COUNT(DISTINCT user_id)::int as count FROM dictation_tests
+      SELECT COUNT(DISTINCT user_id)::int as count FROM dictation_tests ${dateFilter}
     `);
 
     return (result.rows[0] as any)?.count || 0;
   }
 
-  async getDictationLeaderboardAroundUser(userId: string, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
+  async getDictationLeaderboardAroundUser(userId: string, timeframe: string | undefined, range: number = 5): Promise<{ userRank: number; entries: any[] }> {
+    const dateFilter = timeframe && timeframe !== "all" 
+      ? sql`WHERE dt.created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+    const dateFilterNoAlias = timeframe && timeframe !== "all" 
+      ? sql`WHERE created_at >= ${this.getTimeframeDateFilter(timeframe)}`
+      : sql``;
+
     const rankResult = await db.execute(sql`
       WITH ranked_results AS (
         SELECT 
@@ -2300,6 +2492,7 @@ export class DatabaseStorage implements IStorage {
             ORDER BY dt.wpm DESC
           ) as user_rank
         FROM dictation_tests dt
+        ${dateFilter}
       ),
       user_best AS (
         SELECT user_id, wpm FROM ranked_results WHERE user_rank = 1
@@ -2336,9 +2529,10 @@ export class DatabaseStorage implements IStorage {
             ORDER BY dt.wpm DESC
           ) as user_rank
         FROM dictation_tests dt
+        ${dateFilter}
       ),
       test_counts AS (
-        SELECT user_id, COUNT(*)::int as total_tests FROM dictation_tests GROUP BY user_id
+        SELECT user_id, COUNT(*)::int as total_tests FROM dictation_tests ${dateFilterNoAlias} GROUP BY user_id
       ),
       final_ranking AS (
         SELECT 
@@ -2414,7 +2608,7 @@ export class DatabaseStorage implements IStorage {
         FROM user_book_progress ubp
         GROUP BY ubp.user_id
       ),
-      final_ranking AS (
+      valid_users AS (
         SELECT 
           rr.user_id,
           rr.wpm,
@@ -2423,25 +2617,32 @@ export class DatabaseStorage implements IStorage {
           tc.total_tests,
           COALESCE(tc.words_typed, 0) as words_typed,
           COALESCE(bc.completed_count, 0) as books_completed,
-          DENSE_RANK() OVER (ORDER BY rr.wpm DESC) as rank
+          u.username,
+          u.avatar_color
         FROM ranked_results rr
+        INNER JOIN users u ON rr.user_id = u.id
         LEFT JOIN test_counts tc ON rr.user_id = tc.user_id
         LEFT JOIN books_completed bc ON rr.user_id = bc.user_id
         WHERE rr.user_rank = 1
+      ),
+      final_ranking AS (
+        SELECT 
+          vu.*,
+          DENSE_RANK() OVER (ORDER BY vu.wpm DESC) as rank
+        FROM valid_users vu
       )
       SELECT 
         fr.user_id as "userId",
-        u.username,
+        fr.username,
         fr.wpm,
         fr.accuracy,
         fr.words_typed as "wordsTyped",
         fr.books_completed as "booksCompleted",
         fr.created_at as "createdAt",
-        u.avatar_color as "avatarColor",
+        fr.avatar_color as "avatarColor",
         COALESCE(fr.total_tests, 1) as "totalTests",
         fr.rank
       FROM final_ranking fr
-      INNER JOIN users u ON fr.user_id = u.id
       ORDER BY fr.rank ASC
       LIMIT ${limit} OFFSET ${offset}
     `);
@@ -2639,23 +2840,39 @@ export class DatabaseStorage implements IStorage {
     return (result.rows[0] as any)?.count || 0;
   }
 
+  /**
+   * Get the date filter for a given timeframe
+   * Uses UTC for consistent behavior across timezones
+   * Production-ready with proper edge case handling
+   */
   private getTimeframeDateFilter(timeframe?: string): Date {
     const now = new Date();
 
-    switch (timeframe) {
-      case "daily":
-        const today = new Date(now);
-        today.setHours(0, 0, 0, 0);
-        return today;
-      case "weekly":
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        return weekStart;
-      case "monthly":
-        return new Date(now.getFullYear(), now.getMonth(), 1);
-      default:
-        return new Date(0);
+    // Validate timeframe input
+    const validTimeframes = ["daily", "weekly", "monthly", "all"];
+    const safeTimeframe = (timeframe && validTimeframes.includes(timeframe)) ? timeframe : "all";
+
+    try {
+      switch (safeTimeframe) {
+        case "daily":
+          // Start of today in UTC
+          return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+        case "weekly":
+          // Start of current week (Sunday) in UTC
+          const dayOfWeek = now.getUTCDay();
+          return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek, 0, 0, 0, 0));
+        case "monthly":
+          // Start of current month in UTC
+          return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+        case "all":
+        default:
+          // Unix epoch for all-time
+          return new Date(0);
+      }
+    } catch (error) {
+      console.error('[Storage] Error calculating timeframe date filter:', error);
+      // Safe fallback to epoch
+      return new Date(0);
     }
   }
 
