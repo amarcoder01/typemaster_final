@@ -1007,13 +1007,18 @@ export default function Chat() {
       let newConvId = currentConversationId;
       let pendingSources: Array<{ title: string; url: string; snippet: string }> = [];
       let assistantMessageAdded = false;
+      let sseBuffer = ""; // Buffer for incomplete SSE messages across chunks
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
+        // Use stream: true to handle multi-byte characters split across chunks
+        sseBuffer += decoder.decode(value, { stream: true });
+        
+        // Split by newlines and keep the last potentially incomplete line in the buffer
+        const lines = sseBuffer.split("\n");
+        sseBuffer = lines.pop() || ""; // Keep incomplete line for next iteration
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -1070,6 +1075,8 @@ export default function Chat() {
                   setMessages((prev) => [...prev, { role: "assistant", content: "", timestamp: new Date(), sources: pendingSources.length > 0 ? pendingSources : undefined }]);
                   assistantMessageAdded = true;
                   setIsStreaming(true);
+                  // Clear search indicator once response starts streaming - prevents it from showing below the response
+                  setSearchState({ isSearching: false, status: null, query: "", results: [] });
                 }
                 assistantMessage += parsed.content;
                 setMessages((prev) => {

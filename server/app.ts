@@ -33,6 +33,10 @@ app.use(compression({
   level: 6, // Balanced compression level (1-9, default 6)
   threshold: 1024, // Only compress responses larger than 1KB
   filter: (req, res) => {
+    // Skip SSE endpoints - compression buffers streaming responses and breaks token-by-token streaming
+    if (req.path === '/api/chat') {
+      return false;
+    }
     // Don't compress responses with this request header
     if (req.headers['x-no-compression']) {
       return false;

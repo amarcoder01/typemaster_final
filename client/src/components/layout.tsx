@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { Keyboard, BarChart2, User, Settings, Trophy, LogOut, Sparkles, Github, Twitter, Mail, Globe, Zap, Shield, BookOpen, Users, Award, TrendingUp, Code, Book, Headphones, Star, Menu, MessageSquarePlus, Palette, Sun, Waves, Trees, Moon, Minimize2, Sunset as SunsetIcon, Tv, Cpu, ChevronDown } from "lucide-react";
+import { Keyboard, BarChart2, User, Settings, Trophy, LogOut, Sparkles, Github, Twitter, Mail, Globe, Zap, Shield, BookOpen, Users, Award, TrendingUp, Code, Book, Headphones, Star, Menu, MessageSquarePlus, Palette, Sun, Waves, TreePine, Moon, Circle, Sunrise, Gamepad2, Binary, ChevronDown, Target, Leaf, Ghost, Monitor } from "lucide-react";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
@@ -146,99 +146,115 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <p className="text-sm">Change color theme</p>
                   </TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="center" className="w-56">
-                  <DropdownMenuLabel>Choose Theme</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setTheme("focus")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-focus"
-                  >
-                    <Zap className="w-4 h-4 text-blue-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-blue-500 to-blue-700" />
-                    <span className="flex-1 text-sm">Focus</span>
-                    {theme === "focus" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("light")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-light"
-                  >
-                    <Sun className="w-4 h-4 text-yellow-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500" />
-                    <span className="flex-1 text-sm">Light</span>
-                    {theme === "light" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("ocean")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-ocean"
-                  >
-                    <Waves className="w-4 h-4 text-cyan-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600" />
-                    <span className="flex-1 text-sm">Ocean</span>
-                    {theme === "ocean" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("forest")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-forest"
-                  >
-                    <Trees className="w-4 h-4 text-green-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-green-500 to-emerald-600" />
-                    <span className="flex-1 text-sm">Forest</span>
-                    {theme === "forest" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("dracula")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-dracula"
-                  >
-                    <Moon className="w-4 h-4 text-purple-400" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
-                    <span className="flex-1 text-sm">Dracula</span>
-                    {theme === "dracula" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("minimal")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-minimal"
-                  >
-                    <Minimize2 className="w-4 h-4 text-gray-400" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-gray-400 to-gray-600" />
-                    <span className="flex-1 text-sm">Minimal</span>
-                    {theme === "minimal" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("sunset")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-sunset"
-                  >
-                    <SunsetIcon className="w-4 h-4 text-orange-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-pink-500" />
-                    <span className="flex-1 text-sm">Sunset</span>
-                    {theme === "sunset" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("retro")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-retro"
-                  >
-                    <Tv className="w-4 h-4 text-amber-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-amber-600" />
-                    <span className="flex-1 text-sm">Retro</span>
-                    {theme === "retro" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setTheme("cyber")}
-                    className="flex items-center gap-3 cursor-pointer"
-                    data-testid="theme-option-cyber"
-                  >
-                    <Cpu className="w-4 h-4 text-pink-500" />
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
-                    <span className="flex-1 text-sm">Cyber</span>
-                    {theme === "cyber" && <span className="text-primary">✓</span>}
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="center" className="w-[280px] sm:w-72 p-2 sm:p-3">
+                  <div className="flex items-center justify-between mb-2 sm:mb-3 px-1">
+                    <span className="text-xs sm:text-sm font-semibold">Choose Theme</span>
+                    <span className="text-[9px] sm:text-[10px] text-muted-foreground capitalize px-1.5 sm:px-2 py-0.5 bg-muted rounded-full">{theme}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2 sm:mb-3">
+                    {[
+                      { id: "focus", icon: Target, color: "from-blue-500 to-indigo-600", label: "Focus" },
+                      { id: "light", icon: Sun, color: "from-amber-300 to-yellow-500", label: "Light" },
+                      { id: "minimal", icon: Circle, color: "from-slate-400 to-slate-600", label: "Minimal" },
+                    ].map((t) => {
+                      const Icon = t.icon;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setTheme(t.id as any)}
+                          className={cn(
+                            "relative flex flex-col items-center gap-1 sm:gap-1.5 p-2 sm:p-3 rounded-lg sm:rounded-xl border-2 transition-all duration-200 active:scale-95 sm:hover:scale-[1.02]",
+                            theme === t.id
+                              ? "border-primary bg-primary/10 shadow-md"
+                              : "border-border/50 hover:border-border hover:bg-accent/50"
+                          )}
+                          data-testid={`theme-option-${t.id}`}
+                        >
+                          <div className={cn("w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br flex items-center justify-center shadow-lg ring-2 ring-white/20", t.color)}>
+                            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow-sm" />
+                          </div>
+                          <span className="text-[10px] sm:text-xs font-medium">{t.label}</span>
+                          {theme === t.id && (
+                            <div className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 w-4 h-4 sm:w-5 sm:h-5 bg-primary rounded-full flex items-center justify-center shadow-md ring-2 ring-background">
+                              <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="px-1 py-0.5 sm:py-1 text-[9px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Nature</div>
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2 sm:mb-3">
+                    {[
+                      { id: "ocean", icon: Waves, color: "from-cyan-400 to-blue-600", label: "Ocean" },
+                      { id: "forest", icon: TreePine, color: "from-emerald-400 to-green-600", label: "Forest" },
+                      { id: "sunset", icon: Sunrise, color: "from-orange-400 to-rose-500", label: "Sunset" },
+                    ].map((t) => {
+                      const Icon = t.icon;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setTheme(t.id as any)}
+                          className={cn(
+                            "relative flex flex-col items-center gap-1 sm:gap-1.5 p-2 sm:p-3 rounded-lg sm:rounded-xl border-2 transition-all duration-200 active:scale-95 sm:hover:scale-[1.02]",
+                            theme === t.id
+                              ? "border-primary bg-primary/10 shadow-md"
+                              : "border-border/50 hover:border-border hover:bg-accent/50"
+                          )}
+                          data-testid={`theme-option-${t.id}`}
+                        >
+                          <div className={cn("w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br flex items-center justify-center shadow-lg ring-2 ring-white/20", t.color)}>
+                            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow-sm" />
+                          </div>
+                          <span className="text-[10px] sm:text-xs font-medium">{t.label}</span>
+                          {theme === t.id && (
+                            <div className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 w-4 h-4 sm:w-5 sm:h-5 bg-primary rounded-full flex items-center justify-center shadow-md ring-2 ring-background">
+                              <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="px-1 py-0.5 sm:py-1 text-[9px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Special</div>
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                    {[
+                      { id: "dracula", icon: Ghost, color: "from-purple-500 to-pink-600", label: "Dracula" },
+                      { id: "retro", icon: Gamepad2, color: "from-amber-500 to-orange-600", label: "Retro" },
+                      { id: "cyber", icon: Binary, color: "from-fuchsia-500 to-violet-600", label: "Cyber" },
+                    ].map((t) => {
+                      const Icon = t.icon;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setTheme(t.id as any)}
+                          className={cn(
+                            "relative flex flex-col items-center gap-1 sm:gap-1.5 p-2 sm:p-3 rounded-lg sm:rounded-xl border-2 transition-all duration-200 active:scale-95 sm:hover:scale-[1.02]",
+                            theme === t.id
+                              ? "border-primary bg-primary/10 shadow-md"
+                              : "border-border/50 hover:border-border hover:bg-accent/50"
+                          )}
+                          data-testid={`theme-option-${t.id}`}
+                        >
+                          <div className={cn("w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br flex items-center justify-center shadow-lg ring-2 ring-white/20", t.color)}>
+                            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow-sm" />
+                          </div>
+                          <span className="text-[10px] sm:text-xs font-medium">{t.label}</span>
+                          {theme === t.id && (
+                            <div className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 w-4 h-4 sm:w-5 sm:h-5 bg-primary rounded-full flex items-center justify-center shadow-md ring-2 ring-background">
+                              <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -290,101 +306,116 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     {/* Desktop: Use submenu, Mobile: Inline expandable */}
                     {!isMobile ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger data-testid="button-theme-menu">
-                          <Palette className="w-4 h-4 mr-2" />
-                          Theme
+                        <DropdownMenuSubTrigger data-testid="button-theme-menu" className="gap-2">
+                          <Palette className="w-4 h-4" />
+                          <span>Theme</span>
+                          <span className="ml-auto text-[10px] text-muted-foreground capitalize">{theme}</span>
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("focus")}
-                            className={cn(theme === "focus" && "bg-accent")}
-                            data-testid="theme-focus"
-                          >
-                            <Zap className="w-3.5 h-3.5 mr-2 text-blue-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 mr-2" />
-                            <span className="flex-1">Focus</span>
-                            {theme === "focus" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("light")}
-                            className={cn(theme === "light" && "bg-accent")}
-                            data-testid="theme-light"
-                          >
-                            <Sun className="w-3.5 h-3.5 mr-2 text-yellow-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500 mr-2" />
-                            <span className="flex-1">Light</span>
-                            {theme === "light" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("ocean")}
-                            className={cn(theme === "ocean" && "bg-accent")}
-                            data-testid="theme-ocean"
-                          >
-                            <Waves className="w-3.5 h-3.5 mr-2 text-cyan-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 mr-2" />
-                            <span className="flex-1">Ocean</span>
-                            {theme === "ocean" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("forest")}
-                            className={cn(theme === "forest" && "bg-accent")}
-                            data-testid="theme-forest"
-                          >
-                            <Trees className="w-3.5 h-3.5 mr-2 text-green-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 mr-2" />
-                            <span className="flex-1">Forest</span>
-                            {theme === "forest" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("dracula")}
-                            className={cn(theme === "dracula" && "bg-accent")}
-                            data-testid="theme-dracula"
-                          >
-                            <Moon className="w-3.5 h-3.5 mr-2 text-purple-400" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mr-2" />
-                            <span className="flex-1">Dracula</span>
-                            {theme === "dracula" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("minimal")}
-                            className={cn(theme === "minimal" && "bg-accent")}
-                            data-testid="theme-minimal"
-                          >
-                            <Minimize2 className="w-3.5 h-3.5 mr-2 text-gray-400" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 mr-2" />
-                            <span className="flex-1">Minimal</span>
-                            {theme === "minimal" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("sunset")}
-                            className={cn(theme === "sunset" && "bg-accent")}
-                            data-testid="theme-sunset"
-                          >
-                            <SunsetIcon className="w-3.5 h-3.5 mr-2 text-orange-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 mr-2" />
-                            <span className="flex-1">Sunset</span>
-                            {theme === "sunset" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("retro")}
-                            className={cn(theme === "retro" && "bg-accent")}
-                            data-testid="theme-retro"
-                          >
-                            <Tv className="w-3.5 h-3.5 mr-2 text-amber-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 mr-2" />
-                            <span className="flex-1">Retro</span>
-                            {theme === "retro" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setTheme("cyber")}
-                            className={cn(theme === "cyber" && "bg-accent")}
-                            data-testid="theme-cyber"
-                          >
-                            <Cpu className="w-3.5 h-3.5 mr-2 text-pink-500" />
-                            <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mr-2" />
-                            <span className="flex-1">Cyber</span>
-                            {theme === "cyber" && <span className="ml-auto">✓</span>}
-                          </DropdownMenuItem>
+                        <DropdownMenuSubContent className="w-64 p-2">
+                          <div className="grid grid-cols-3 gap-1.5 mb-3">
+                            {[
+                              { id: "focus", icon: Target, color: "from-blue-500 to-indigo-600" },
+                              { id: "light", icon: Sun, color: "from-amber-300 to-yellow-500" },
+                              { id: "minimal", icon: Circle, color: "from-slate-400 to-slate-600" },
+                            ].map((t) => {
+                              const Icon = t.icon;
+                              return (
+                                <button
+                                  key={t.id}
+                                  onClick={() => setTheme(t.id as any)}
+                                  className={cn(
+                                    "relative flex flex-col items-center gap-1.5 p-2.5 rounded-lg border-2 transition-all duration-200",
+                                    theme === t.id
+                                      ? "border-primary bg-primary/10 shadow-sm"
+                                      : "border-transparent hover:border-border hover:bg-accent/50"
+                                  )}
+                                  data-testid={`theme-${t.id}`}
+                                >
+                                  <div className={cn("w-8 h-8 rounded-full bg-gradient-to-br flex items-center justify-center shadow-inner", t.color)}>
+                                    <Icon className="w-4 h-4 text-white drop-shadow-sm" />
+                                  </div>
+                                  <span className="text-[11px] font-medium capitalize">{t.id}</span>
+                                  {theme === t.id && (
+                                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                      <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="px-1 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Nature</div>
+                          <div className="grid grid-cols-3 gap-1.5 mb-3">
+                            {[
+                              { id: "ocean", icon: Waves, color: "from-cyan-400 to-blue-600" },
+                              { id: "forest", icon: TreePine, color: "from-emerald-400 to-green-600" },
+                              { id: "sunset", icon: Sunrise, color: "from-orange-400 to-rose-500" },
+                            ].map((t) => {
+                              const Icon = t.icon;
+                              return (
+                                <button
+                                  key={t.id}
+                                  onClick={() => setTheme(t.id as any)}
+                                  className={cn(
+                                    "relative flex flex-col items-center gap-1.5 p-2.5 rounded-lg border-2 transition-all duration-200",
+                                    theme === t.id
+                                      ? "border-primary bg-primary/10 shadow-sm"
+                                      : "border-transparent hover:border-border hover:bg-accent/50"
+                                  )}
+                                  data-testid={`theme-${t.id}`}
+                                >
+                                  <div className={cn("w-8 h-8 rounded-full bg-gradient-to-br flex items-center justify-center shadow-inner", t.color)}>
+                                    <Icon className="w-4 h-4 text-white drop-shadow-sm" />
+                                  </div>
+                                  <span className="text-[11px] font-medium capitalize">{t.id}</span>
+                                  {theme === t.id && (
+                                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                      <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="px-1 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Special</div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { id: "dracula", icon: Ghost, color: "from-purple-500 to-pink-600" },
+                              { id: "retro", icon: Gamepad2, color: "from-amber-500 to-orange-600" },
+                              { id: "cyber", icon: Binary, color: "from-fuchsia-500 to-violet-600" },
+                            ].map((t) => {
+                              const Icon = t.icon;
+                              return (
+                                <button
+                                  key={t.id}
+                                  onClick={() => setTheme(t.id as any)}
+                                  className={cn(
+                                    "relative flex flex-col items-center gap-1.5 p-2.5 rounded-lg border-2 transition-all duration-200",
+                                    theme === t.id
+                                      ? "border-primary bg-primary/10 shadow-sm"
+                                      : "border-transparent hover:border-border hover:bg-accent/50"
+                                  )}
+                                  data-testid={`theme-${t.id}`}
+                                >
+                                  <div className={cn("w-8 h-8 rounded-full bg-gradient-to-br flex items-center justify-center shadow-inner", t.color)}>
+                                    <Icon className="w-4 h-4 text-white drop-shadow-sm" />
+                                  </div>
+                                  <span className="text-[11px] font-medium capitalize">{t.id}</span>
+                                  {theme === t.id && (
+                                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                      <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                     ) : (
@@ -397,9 +428,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           className="flex items-center justify-between cursor-pointer"
                           data-testid="button-theme-menu-mobile"
                         >
-                          <div className="flex items-center">
-                            <Palette className="w-4 h-4 mr-2" />
-                            Theme
+                          <div className="flex items-center gap-2">
+                            <Palette className="w-4 h-4" />
+                            <span>Theme</span>
+                            <span className="text-[10px] text-muted-foreground capitalize px-1.5 py-0.5 bg-muted rounded">{theme}</span>
                           </div>
                           <ChevronDown className={cn(
                             "w-4 h-4 transition-transform duration-200",
@@ -407,97 +439,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           )} />
                         </DropdownMenuItem>
                         {themeMenuExpanded && (
-                          <div className="pl-4 space-y-0.5 py-1 border-l-2 border-muted ml-3">
-                            <DropdownMenuItem
-                              onClick={() => setTheme("focus")}
-                              className={cn("py-1.5 text-xs", theme === "focus" && "bg-accent")}
-                              data-testid="theme-focus-mobile"
-                            >
-                              <Zap className="w-3 h-3 mr-2 text-blue-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 mr-2" />
-                              <span className="flex-1">Focus</span>
-                              {theme === "focus" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("light")}
-                              className={cn("py-1.5 text-xs", theme === "light" && "bg-accent")}
-                              data-testid="theme-light-mobile"
-                            >
-                              <Sun className="w-3 h-3 mr-2 text-yellow-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500 mr-2" />
-                              <span className="flex-1">Light</span>
-                              {theme === "light" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("ocean")}
-                              className={cn("py-1.5 text-xs", theme === "ocean" && "bg-accent")}
-                              data-testid="theme-ocean-mobile"
-                            >
-                              <Waves className="w-3 h-3 mr-2 text-cyan-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 mr-2" />
-                              <span className="flex-1">Ocean</span>
-                              {theme === "ocean" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("forest")}
-                              className={cn("py-1.5 text-xs", theme === "forest" && "bg-accent")}
-                              data-testid="theme-forest-mobile"
-                            >
-                              <Trees className="w-3 h-3 mr-2 text-green-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 mr-2" />
-                              <span className="flex-1">Forest</span>
-                              {theme === "forest" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("dracula")}
-                              className={cn("py-1.5 text-xs", theme === "dracula" && "bg-accent")}
-                              data-testid="theme-dracula-mobile"
-                            >
-                              <Moon className="w-3 h-3 mr-2 text-purple-400" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mr-2" />
-                              <span className="flex-1">Dracula</span>
-                              {theme === "dracula" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("minimal")}
-                              className={cn("py-1.5 text-xs", theme === "minimal" && "bg-accent")}
-                              data-testid="theme-minimal-mobile"
-                            >
-                              <Minimize2 className="w-3 h-3 mr-2 text-gray-400" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 mr-2" />
-                              <span className="flex-1">Minimal</span>
-                              {theme === "minimal" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("sunset")}
-                              className={cn("py-1.5 text-xs", theme === "sunset" && "bg-accent")}
-                              data-testid="theme-sunset-mobile"
-                            >
-                              <SunsetIcon className="w-3 h-3 mr-2 text-orange-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 mr-2" />
-                              <span className="flex-1">Sunset</span>
-                              {theme === "sunset" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("retro")}
-                              className={cn("py-1.5 text-xs", theme === "retro" && "bg-accent")}
-                              data-testid="theme-retro-mobile"
-                            >
-                              <Tv className="w-3 h-3 mr-2 text-amber-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 mr-2" />
-                              <span className="flex-1">Retro</span>
-                              {theme === "retro" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTheme("cyber")}
-                              className={cn("py-1.5 text-xs", theme === "cyber" && "bg-accent")}
-                              data-testid="theme-cyber-mobile"
-                            >
-                              <Cpu className="w-3 h-3 mr-2 text-pink-500" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mr-2" />
-                              <span className="flex-1">Cyber</span>
-                              {theme === "cyber" && <span className="ml-auto text-xs">✓</span>}
-                            </DropdownMenuItem>
+                          <div className="px-2 py-2 bg-muted/30 rounded-lg mx-1 my-1">
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {[
+                                { id: "focus", icon: Target, color: "from-blue-500 to-indigo-600" },
+                                { id: "light", icon: Sun, color: "from-amber-300 to-yellow-500" },
+                                { id: "minimal", icon: Circle, color: "from-slate-400 to-slate-600" },
+                                { id: "ocean", icon: Waves, color: "from-cyan-400 to-blue-600" },
+                                { id: "forest", icon: TreePine, color: "from-emerald-400 to-green-600" },
+                                { id: "sunset", icon: Sunrise, color: "from-orange-400 to-rose-500" },
+                                { id: "dracula", icon: Ghost, color: "from-purple-500 to-pink-600" },
+                                { id: "retro", icon: Gamepad2, color: "from-amber-500 to-orange-600" },
+                                { id: "cyber", icon: Binary, color: "from-fuchsia-500 to-violet-600" },
+                              ].map((t) => {
+                                const Icon = t.icon;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => setTheme(t.id as any)}
+                                    className={cn(
+                                      "relative flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-200 active:scale-95",
+                                      theme === t.id
+                                        ? "border-primary bg-primary/10"
+                                        : "border-transparent hover:bg-accent/50"
+                                    )}
+                                    data-testid={`theme-${t.id}-mobile`}
+                                  >
+                                    <div className={cn("w-7 h-7 rounded-full bg-gradient-to-br flex items-center justify-center shadow-sm", t.color)}>
+                                      <Icon className="w-3.5 h-3.5 text-white" />
+                                    </div>
+                                    <span className="text-[10px] font-medium capitalize">{t.id}</span>
+                                    {theme === t.id && (
+                                      <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-primary rounded-full flex items-center justify-center ring-2 ring-background">
+                                        <svg className="w-2 h-2 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </>
@@ -567,181 +549,55 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   </div>
 
                   <div className="mt-4 pt-4 border-t">
-                    <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Theme
+                    <div className="px-3 py-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Theme</span>
+                      <span className="text-[10px] text-muted-foreground capitalize px-2 py-0.5 bg-muted rounded-full">{theme}</span>
                     </div>
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("focus");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "focus"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-focus"
-                      >
-                        <Zap className="w-4 h-4 text-blue-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-blue-500 to-blue-700" />
-                        <span className="flex-1 text-left">Focus</span>
-                        {theme === "focus" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("light");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "light"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-light"
-                      >
-                        <Sun className="w-4 h-4 text-yellow-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500" />
-                        <span className="flex-1 text-left">Light</span>
-                        {theme === "light" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("ocean");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "ocean"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-ocean"
-                      >
-                        <Waves className="w-4 h-4 text-cyan-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600" />
-                        <span className="flex-1 text-left">Ocean</span>
-                        {theme === "ocean" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("forest");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "forest"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-forest"
-                      >
-                        <Trees className="w-4 h-4 text-green-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-green-500 to-emerald-600" />
-                        <span className="flex-1 text-left">Forest</span>
-                        {theme === "forest" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("dracula");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "dracula"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-dracula"
-                      >
-                        <Moon className="w-4 h-4 text-purple-400" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
-                        <span className="flex-1 text-left">Dracula</span>
-                        {theme === "dracula" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("minimal");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "minimal"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-minimal"
-                      >
-                        <Minimize2 className="w-4 h-4 text-gray-400" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-gray-400 to-gray-600" />
-                        <span className="flex-1 text-left">Minimal</span>
-                        {theme === "minimal" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("sunset");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "sunset"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-sunset"
-                      >
-                        <SunsetIcon className="w-4 h-4 text-orange-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-pink-500" />
-                        <span className="flex-1 text-left">Sunset</span>
-                        {theme === "sunset" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("retro");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "retro"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-retro"
-                      >
-                        <Tv className="w-4 h-4 text-amber-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-orange-500 to-amber-600" />
-                        <span className="flex-1 text-left">Retro</span>
-                        {theme === "retro" && <span className="text-primary">✓</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTheme("cyber");
-                          setMobileMenuOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm font-medium",
-                          theme === "cyber"
-                            ? "text-primary bg-primary/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid="mobile-theme-cyber"
-                      >
-                        <Cpu className="w-4 h-4 text-pink-500" />
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
-                        <span className="flex-1 text-left">Cyber</span>
-                        {theme === "cyber" && <span className="text-primary">✓</span>}
-                      </button>
+                    <div className="px-2">
+                      <div className="grid grid-cols-3 gap-1.5 p-2 bg-muted/30 rounded-xl">
+                        {[
+                          { id: "focus", icon: Target, color: "from-blue-500 to-indigo-600" },
+                          { id: "light", icon: Sun, color: "from-amber-300 to-yellow-500" },
+                          { id: "minimal", icon: Circle, color: "from-slate-400 to-slate-600" },
+                          { id: "ocean", icon: Waves, color: "from-cyan-400 to-blue-600" },
+                          { id: "forest", icon: TreePine, color: "from-emerald-400 to-green-600" },
+                          { id: "sunset", icon: Sunrise, color: "from-orange-400 to-rose-500" },
+                          { id: "dracula", icon: Ghost, color: "from-purple-500 to-pink-600" },
+                          { id: "retro", icon: Gamepad2, color: "from-amber-500 to-orange-600" },
+                          { id: "cyber", icon: Binary, color: "from-fuchsia-500 to-violet-600" },
+                        ].map((t) => {
+                          const Icon = t.icon;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => {
+                                setTheme(t.id as any);
+                                setMobileMenuOpen(false);
+                              }}
+                              className={cn(
+                                "relative flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-200 active:scale-95",
+                                theme === t.id
+                                  ? "border-primary bg-primary/10 shadow-sm"
+                                  : "border-transparent active:bg-accent/50"
+                              )}
+                              data-testid={`mobile-theme-${t.id}`}
+                            >
+                              <div className={cn("w-9 h-9 rounded-full bg-gradient-to-br flex items-center justify-center shadow-md ring-1 ring-white/20", t.color)}>
+                                <Icon className="w-[18px] h-[18px] text-white drop-shadow-sm" />
+                              </div>
+                              <span className="text-[10px] font-medium capitalize leading-tight">{t.id}</span>
+                              {theme === t.id && (
+                                <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center shadow ring-2 ring-background">
+                                  <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 

@@ -2889,8 +2889,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no"); // Disable nginx/proxy buffering for SSE
+      res.flushHeaders(); // Send headers immediately to establish SSE connection
 
       try {
         let assistantResponse = "";

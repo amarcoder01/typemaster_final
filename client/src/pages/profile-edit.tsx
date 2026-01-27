@@ -130,7 +130,7 @@ export default function ProfileEdit() {
         title: "Profile Updated!",
         description: "Your profile has been updated successfully.",
       });
-      setLocation("/profile");
+      setLocation("/profile", { replace: true });
     },
     onError: (error: Error) => {
       setErrorMessage(error.message);
@@ -433,7 +433,7 @@ export default function ProfileEdit() {
                     variant="outline"
                     size="sm"
                     className="flex-1 sm:flex-none text-xs sm:text-sm"
-                    onClick={() => setLocation("/profile")}
+                    onClick={() => setLocation("/profile", { replace: true })}
                     disabled={updateProfileMutation.isPending}
                     data-testid="button-cancel"
                   >

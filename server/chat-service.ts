@@ -1154,7 +1154,44 @@ export function decideIfSearchNeeded(message: string): SearchDecision {
     };
   }
 
-  // 10. DEFAULT BEHAVIOR - For ambiguous queries, skip search (let AI answer from knowledge)
+  // 10. EXPLICIT SEARCH REQUESTS - Always honor user's explicit search intent
+  const explicitSearchTriggers = [
+    "search for", "search about", "search the web", "search the internet",
+    "web search", "perform a web search", "perform web search", "do a web search",
+    "google", "look up", "lookup", "find online", "find on the web",
+    "search online", "research this", "research about", "find information",
+    "look this up", "can you search", "please search", "search and tell"
+  ];
+
+  const hasExplicitSearch = explicitSearchTriggers.some(trigger => lowerMessage.includes(trigger));
+  if (hasExplicitSearch) {
+    // Clean up the search query by removing the search trigger phrases
+    let searchQuery = trimmedMessage
+      .replace(/perform\s+a?\s*web\s*search\s*(for|about|on|and)?\s*/gi, "")
+      .replace(/do\s+a?\s*web\s*search\s*(for|about|on|and)?\s*/gi, "")
+      .replace(/web\s*search\s*(for|about|on)?\s*/gi, "")
+      .replace(/search\s+(for|about|the\s+web|the\s+internet|online)\s*/gi, "")
+      .replace(/search\s+and\s+(tell|find|show)\s*(me)?\s*/gi, "")
+      .replace(/(google|look\s*up|lookup|find\s+online|find\s+on\s+the\s+web)\s*/gi, "")
+      .replace(/(please|can\s+you|could\s+you)\s+search\s*/gi, "")
+      .replace(/research\s+(this|about)?\s*/gi, "")
+      .replace(/find\s+information\s+(on|about)?\s*/gi, "")
+      .trim();
+    
+    // If query is empty after cleanup, use original message
+    if (searchQuery.length < 5) {
+      searchQuery = trimmedMessage;
+    }
+    
+    console.log(`[Smart Search] Explicit search request - search enabled`);
+    return {
+      shouldSearch: true,
+      searchQuery: searchQuery,
+      reason: "Explicit search request from user",
+    };
+  }
+
+  // 11. DEFAULT BEHAVIOR - For ambiguous queries, skip search (let AI answer from knowledge)
   console.log(`[Smart Search] Default - no search (AI knowledge sufficient)`);
   return {
     shouldSearch: false,

@@ -1363,7 +1363,7 @@ export default function Profile() {
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 -mr-2">
+                <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                     {badgeProgress
                       .filter((item) => item.unlocked)

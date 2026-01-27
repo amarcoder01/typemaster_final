@@ -17,7 +17,8 @@ export function BackButton({ to, className, label = "Back" }: BackButtonProps) {
 
     const handleBack = () => {
         if (to) {
-            setLocation(to);
+            // Use replace to avoid creating a navigation loop in browser history
+            setLocation(to, { replace: true });
         } else {
             window.history.back();
         }
