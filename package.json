@@ -43,7 +43,18 @@
     "cf:kv:list": "wrangler kv namespace list",
     "cf:r2:list": "wrangler r2 bucket list",
     "cf:pages:deploy": "npm run build:client && wrangler pages deploy dist/public --project-name typemasterai",
-    "cf:types": "wrangler types"
+    "cf:types": "wrangler types",
+    "fly:launch": "flyctl launch --no-deploy",
+    "fly:deploy": "flyctl deploy",
+    "fly:open": "flyctl open",
+    "fly:logs": "flyctl logs",
+    "fly:status": "flyctl status",
+    "fly:secrets": "flyctl secrets list",
+    "fly:secret:set": "flyctl secrets set",
+    "fly:secret:unset": "flyctl secrets unset",
+    "fly:scale": "flyctl scale count",
+    "fly:ssh": "flyctl ssh console",
+    "fly:monitor": "flyctl monitor"
   },
   "dependencies": {
     "@azure/ai-projects": "^1.0.1",

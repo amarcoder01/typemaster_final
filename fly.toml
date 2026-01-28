@@ -1,0 +1,85 @@
+# Fly.io App Configuration File
+# Generated for TypeMasterAI deployment
+
+app = "typemasterai"
+primary_region = "iad"  # Washington, D.C. - adjust to your preference
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  REDIS_ENABLED = "false"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+    [services.http_checks.headers]
+      Content-Type = "application/json"
+
+# Machine configuration
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# Scaling configuration
+[scaling]
+  min_machines = 1
+  max_machines = 3
+
+# Health check configuration
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+# Process groups
+[processes]
+  app = "npx tsx server/index-prod.ts"
+
+# Deploy configuration
+[deploy]
+  strategy = "immediate"
+  max_unavailable = 0
+
+# Experimental features
+[experimental]
+  auto_rollback = true

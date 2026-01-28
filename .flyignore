@@ -1,0 +1,58 @@
+# Fly.io ignore file
+# Files to exclude from deployment
+
+# Cloudflare specific
+.wrangler
+wrangler.jsonc
+CLOUDFLARE_DEPLOYMENT.md
+CLOUDFLARE_WINDOWS_NOTE.md
+DEPLOYMENT_FIXES.md
+
+# Development
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# Documentation (keep only essential)
+*.md
+!README.md
+!FLY_DEPLOYMENT.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+cloudbuild.yaml
+render.yaml
+
+# Testing
+coverage
+.nyc_output
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+e2e
+playwright.config.ts
+
+# Logs
+logs
+*.log
+
+# Security reports
+*-report.json
+*-report.html
+SECURITY_REPORT.md
+PRODUCTION_SECURITY_AUDIT_REPORT.md
+
+# Temporary
+tmp
+temp
+*.tmp
+
+# Scripts
+scripts/*.ps1
+
+# Attached assets (development only)
+attached_assets

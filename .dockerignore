@@ -44,6 +44,8 @@ docs
 .gitlab-ci.yml
 .travis.yml
 cloudbuild.yaml
+fly.toml
+.wrangler
 
 # Build artifacts
 dist

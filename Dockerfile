@@ -63,7 +63,7 @@ COPY --from=builder --chown=nodejs:nodejs /app/migrations ./migrations
 # Switch to non-root user
 USER nodejs
 
-# Cloud Run uses PORT environment variable (default 8080)
+# Fly.io and Cloud Run use PORT environment variable (default 8080)
 ENV NODE_ENV=production
 ENV PORT=8080
 
