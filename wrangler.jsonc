@@ -27,11 +27,16 @@
   },
 
   // Environment variables
-  // BACKEND_URL: URL of your backend server (Fly.io, Cloud Run, etc.)
+  // BACKEND_URL: URL of your backend server (Fly.io, Cloud Run, Render, etc.)
+  // IMPORTANT: Change BACKEND_URL to your actual backend URL
+  // Options:
+  // - Fly.io: https://typemasterai.fly.dev
+  // - Cloud Run: https://typemasterai-xxxxxx-uc.a.run.app
+  // - Render: https://typemasterai.onrender.com
   "vars": {
     "NODE_ENV": "production",
     "APP_URL": "https://typemasterai.com",
-    "BACKEND_URL": "https://typemasterai.fly.dev"
+    "BACKEND_URL": "https://typemasterai.onrender.com"
   },
 
   // Local development configuration
