@@ -9,9 +9,9 @@
  * - Static asset serving via Workers Assets
  * - Neon PostgreSQL database connection
  * - Durable Objects for WebSocket handling
- * - KV for session storage and caching
- * - R2 for file uploads
- * - Queues for background job processing
+ * - KV for session storage and caching (optional)
+ * - R2 for file uploads (optional)
+ * - Queues for background job processing (optional - must be created first)
  */
 
 /// <reference types="@cloudflare/workers-types" />
@@ -31,9 +31,10 @@ export interface Env {
   RACE_ROOMS: DurableObjectNamespace;
   LEADERBOARD_WS: DurableObjectNamespace;
   
-  // Queues
-  LEADERBOARD_QUEUE: Queue;
-  ACHIEVEMENT_QUEUE: Queue;
+  // Queues (optional - only bind if queues are created in Cloudflare dashboard)
+  // To enable: create queues via `wrangler queues create <name>` then add to wrangler.jsonc
+  LEADERBOARD_QUEUE?: Queue;
+  ACHIEVEMENT_QUEUE?: Queue;
   
   // Static Assets
   ASSETS: Fetcher;
@@ -93,27 +94,6 @@ export default {
   },
   
   /**
-   * Queue consumer handler for background jobs
-   */
-  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    const queueName = batch.queue;
-    
-    for (const message of batch.messages) {
-      try {
-        if (queueName === "typemasterai-leaderboard") {
-          await processLeaderboardJob(message.body, env);
-        } else if (queueName === "typemasterai-achievements") {
-          await processAchievementJob(message.body, env);
-        }
-        message.ack();
-      } catch (error) {
-        console.error(`Failed to process message in ${queueName}:`, error);
-        message.retry();
-      }
-    }
-  },
-  
-  /**
    * Scheduled handler for cron triggers
    */
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -121,6 +101,32 @@ export default {
     ctx.waitUntil(refreshLeaderboardCache(env));
   },
 };
+
+// Queue handler - commented out until queues are created in Cloudflare dashboard
+// To enable: 
+// 1. Run: wrangler queues create typemasterai-leaderboard
+// 2. Run: wrangler queues create typemasterai-achievements
+// 3. Add queue bindings to wrangler.jsonc
+// 4. Uncomment the queue handler below and add it to the export default above
+/*
+async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+  const queueName = batch.queue;
+  
+  for (const message of batch.messages) {
+    try {
+      if (queueName === "typemasterai-leaderboard") {
+        await processLeaderboardJob(message.body, env);
+      } else if (queueName === "typemasterai-achievements") {
+        await processAchievementJob(message.body, env);
+      }
+      message.ack();
+    } catch (error) {
+      console.error(`Failed to process message in ${queueName}:`, error);
+      message.retry();
+    }
+  }
+}
+*/
 
 /**
  * Inject Cloudflare env bindings into process.env for Express compatibility
