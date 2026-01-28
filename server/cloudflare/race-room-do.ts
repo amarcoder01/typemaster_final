@@ -9,6 +9,8 @@
  * - Automatic cleanup when race ends
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 import type { Env } from "../cloudflare-worker";
 
 interface RaceParticipant {

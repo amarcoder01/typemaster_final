@@ -67,35 +67,7 @@
     ]
   },
 
-  // Queues for background job processing
-  // Note: Queues will be auto-created if they don't exist
-  "queues": {
-    "producers": [
-      {
-        "binding": "LEADERBOARD_QUEUE",
-        "queue": "typemasterai-leaderboard"
-      },
-      {
-        "binding": "ACHIEVEMENT_QUEUE", 
-        "queue": "typemasterai-achievements"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "typemasterai-leaderboard",
-        "max_batch_size": 100,
-        "max_batch_timeout": 5,
-        "max_retries": 3,
-        "dead_letter_queue": "typemasterai-dlq"
-      },
-      {
-        "queue": "typemasterai-achievements",
-        "max_batch_size": 50,
-        "max_batch_timeout": 10,
-        "max_retries": 3
-      }
-    ]
-  },
+
 
   // Environment variables (non-sensitive)
   // Sensitive values should be added via wrangler secret

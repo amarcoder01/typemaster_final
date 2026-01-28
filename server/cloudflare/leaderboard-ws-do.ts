@@ -9,6 +9,8 @@
  * - Efficient broadcast to interested clients
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 import type { Env } from "../cloudflare-worker";
 
 interface LeaderboardSubscription {
