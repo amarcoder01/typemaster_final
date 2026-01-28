@@ -1,7 +1,6 @@
 import { Link } from 'wouter';
 import { Keyboard, Zap, Users, Code, BarChart2, Trophy, Clock, Globe, ChevronDown } from 'lucide-react';
 import TypingTest from "@/components/typing-test";
-import generatedImage from '@assets/generated_images/subtle_dark_geometric_pattern_background_for_typing_app.png';
 import { useSEO, SEO_CONFIGS } from '@/lib/seo';
 import { PLATFORM_STATS, formatNumber } from '@shared/platform-stats';
 import { useState } from 'react';
@@ -39,16 +38,22 @@ export default function Home() {
 
   return (
     <div className="relative">
-      {/* Ambient Background - Optimized for LCP */}
-      <div className="fixed inset-0 z-[-1] opacity-20 pointer-events-none">
-        <img
-          src={generatedImage}
-          alt=""
-          className="w-full h-full object-cover"
-          loading="eager"
-          decoding="async"
-          fetchPriority="high"
-          aria-hidden="true"
+      {/* Ambient Background - CSS-based geometric pattern */}
+      <div className="fixed inset-0 z-[-1] opacity-20 pointer-events-none" aria-hidden="true">
+        <div 
+          className="w-full h-full"
+          style={{
+            backgroundImage: `
+              linear-gradient(30deg, hsl(var(--primary) / 0.1) 12%, transparent 12.5%, transparent 87%, hsl(var(--primary) / 0.1) 87.5%, hsl(var(--primary) / 0.1)),
+              linear-gradient(150deg, hsl(var(--primary) / 0.1) 12%, transparent 12.5%, transparent 87%, hsl(var(--primary) / 0.1) 87.5%, hsl(var(--primary) / 0.1)),
+              linear-gradient(30deg, hsl(var(--primary) / 0.1) 12%, transparent 12.5%, transparent 87%, hsl(var(--primary) / 0.1) 87.5%, hsl(var(--primary) / 0.1)),
+              linear-gradient(150deg, hsl(var(--primary) / 0.1) 12%, transparent 12.5%, transparent 87%, hsl(var(--primary) / 0.1) 87.5%, hsl(var(--primary) / 0.1)),
+              linear-gradient(60deg, hsl(var(--muted) / 0.15) 25%, transparent 25.5%, transparent 75%, hsl(var(--muted) / 0.15) 75%, hsl(var(--muted) / 0.15)),
+              linear-gradient(60deg, hsl(var(--muted) / 0.15) 25%, transparent 25.5%, transparent 75%, hsl(var(--muted) / 0.15) 75%, hsl(var(--muted) / 0.15))
+            `,
+            backgroundSize: '80px 140px',
+            backgroundPosition: '0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px'
+          }}
         />
         <div className="absolute inset-0 bg-background/80 backdrop-blur-[2px]" />
       </div>

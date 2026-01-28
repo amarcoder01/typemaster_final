@@ -39,8 +39,6 @@
     "cf:tail": "wrangler tail",
     "cf:tail:staging": "wrangler tail --env staging",
     "cf:secrets": "wrangler secret list",
-    "cf:secrets:bulk": "wrangler secret bulk .env.cloudflare.json",
-    "cf:secrets:bulk:production": "wrangler secret bulk .env.cloudflare.json --env production",
     "cf:secret:put": "wrangler secret put",
     "cf:kv:list": "wrangler kv namespace list",
     "cf:r2:list": "wrangler r2 bucket list",
