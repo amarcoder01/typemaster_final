@@ -14,16 +14,18 @@
  * - Queues for background job processing
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 import { app } from "./app";
 
 // Cloudflare Worker Environment Types
 export interface Env {
-  // KV Namespaces
-  SESSIONS: KVNamespace;
-  CACHE: KVNamespace;
+  // KV Namespaces (optional - will be auto-provisioned if not specified)
+  SESSIONS?: KVNamespace;
+  CACHE?: KVNamespace;
   
-  // R2 Buckets
-  UPLOADS: R2Bucket;
+  // R2 Buckets (optional - will be auto-provisioned if not specified)
+  UPLOADS?: R2Bucket;
   
   // Durable Objects
   RACE_ROOMS: DurableObjectNamespace;

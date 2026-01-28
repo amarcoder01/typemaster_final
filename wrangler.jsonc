@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "typemasterai",
+  "name": "typemaster",
   "main": "server/cloudflare-worker.ts",
   "compatibility_date": "2024-09-23",
   "compatibility_flags": [
@@ -29,29 +29,31 @@
   },
 
   // KV Namespaces for caching and sessions
-  // Note: Create these in Cloudflare dashboard, then add IDs here
-  "kv_namespaces": [
-    {
-      "binding": "SESSIONS"
-      // "id": "YOUR_KV_NAMESPACE_ID" - Add after creating in dashboard
-    },
-    {
-      "binding": "CACHE"
-      // "id": "YOUR_KV_NAMESPACE_ID" - Add after creating in dashboard
-    }
-  ],
+  // Note: These will be auto-provisioned on first deploy if they don't exist
+  // To use existing namespaces, uncomment and add IDs:
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "SESSIONS",
+  //     "id": "YOUR_SESSIONS_KV_ID"
+  //   },
+  //   {
+  //     "binding": "CACHE",
+  //     "id": "YOUR_CACHE_KV_ID"
+  //   }
+  // ],
 
   // R2 Buckets for file storage
-  // Note: Create bucket in Cloudflare dashboard, then add name here
-  "r2_buckets": [
-    {
-      "binding": "UPLOADS"
-      // "bucket_name": "typemasterai-uploads" - Add after creating in dashboard
-    }
-  ],
+  // Note: These will be auto-provisioned on first deploy if they don't exist
+  // To use existing bucket, uncomment and add bucket name:
+  // "r2_buckets": [
+  //   {
+  //     "binding": "UPLOADS",
+  //     "bucket_name": "typemaster-uploads"
+  //   }
+  // ],
 
   // Durable Objects for WebSocket connections (multiplayer races)
-  // Note: Configure after testing basic deployment
+  // Note: Will be created automatically on first deploy
   "durable_objects": {
     "bindings": [
       {
@@ -66,7 +68,7 @@
   },
 
   // Queues for background job processing
-  // Note: Create queue in Cloudflare dashboard
+  // Note: Queues will be auto-created if they don't exist
   "queues": {
     "producers": [
       {
@@ -136,14 +138,14 @@
   // Environments
   "env": {
     "staging": {
-      "name": "typemasterai-staging",
+      "name": "typemaster-staging",
       "vars": {
         "NODE_ENV": "staging",
         "APP_URL": "https://staging.typemasterai.com"
       }
     },
     "production": {
-      "name": "typemasterai",
+      "name": "typemaster",
       "vars": {
         "NODE_ENV": "production",
         "APP_URL": "https://typemasterai.com"
