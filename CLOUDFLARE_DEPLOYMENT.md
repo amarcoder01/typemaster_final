@@ -39,7 +39,43 @@ npx wrangler login
 
 ### 3. Set Up Secrets
 
-Add your secrets to Cloudflare (never commit these to git):
+#### Option A: Bulk Upload (Recommended)
+
+Create a `.env.cloudflare.json` file from the template:
+
+```bash
+# Copy the example and fill in your values
+cp .env.cloudflare.example.json .env.cloudflare.json
+# Edit with your actual secrets
+```
+
+The JSON format should be:
+```json
+{
+  "DATABASE_URL": "your-database-url",
+  "OPENAI_API_KEY": "your-api-key",
+  ...
+}
+```
+
+Upload all secrets at once:
+
+```bash
+# Upload to default environment
+npm run cf:secrets:bulk
+
+# Or for production environment
+npm run cf:secrets:bulk:production
+```
+
+**Note for Windows ARM64 users**: The `wrangler` command may not work locally due to `workerd` platform limitations. Use one of these alternatives:
+- Run from WSL (Windows Subsystem for Linux)
+- Use the Cloudflare Dashboard: Workers & Pages > Your Worker > Settings > Variables and Secrets
+- Add secrets through CI/CD pipeline
+
+#### Option B: Individual Secrets
+
+Add secrets one at a time:
 
 ```bash
 # Database
@@ -57,6 +93,8 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 
 # Email
 npx wrangler secret put MAILGUN_API_KEY
+npx wrangler secret put MAILGUN_FROM_EMAIL
+npx wrangler secret put MAILGUN_DOMAIN
 
 # Session
 npx wrangler secret put SESSION_SECRET
@@ -64,6 +102,9 @@ npx wrangler secret put SESSION_SECRET
 # Push Notifications
 npx wrangler secret put VAPID_PUBLIC_KEY
 npx wrangler secret put VAPID_PRIVATE_KEY
+
+# Bing API
+npx wrangler secret put BING_GROUNDING_KEY
 ```
 
 ### 4. Create Required Resources
