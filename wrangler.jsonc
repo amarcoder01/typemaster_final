@@ -83,15 +83,15 @@
     "WS_HEARTBEAT_INTERVAL_MS": "30000"
   },
 
-  // CPU limits for Workers
-  "limits": {
-    "cpu_ms": 30000
-  },
+  // CPU limits for Workers (requires paid plan - uncomment if on paid plan)
+  // "limits": {
+  //   "cpu_ms": 30000
+  // },
 
-  // Placement configuration - smart placement for database proximity
-  "placement": {
-    "mode": "smart"
-  },
+  // Placement configuration - smart placement for database proximity (requires paid plan)
+  // "placement": {
+  //   "mode": "smart"
+  // },
 
   // Local development configuration
   "dev": {
