@@ -16,7 +16,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, User as UserIcon, TrendingUp, MapPin, Keyboard, Edit, Award, Flame, Star, Target, ChevronRight, Trophy, Sparkles, Check, Zap, Share2, Moon, Sunrise, Rocket, Timer, HelpCircle, MessageSquare, Download, RefreshCw, Filter, FileText, ChevronDown } from "lucide-react";
 import { useUserCertificates, useDeleteCertificate } from "@/hooks/useCertificates";
-import { DictationCertificate } from "@/components/DictationCertificate";
 import { StressCertificate } from "@/components/StressCertificate";
 import { CodeCertificate } from "@/components/CodeCertificate";
 // HIDDEN: Book mode temporarily disabled
@@ -504,17 +503,21 @@ export default function Profile() {
               <div>
                 <div className="flex items-center justify-center sm:justify-start gap-2 sm:gap-3 flex-wrap">
                   <h1 className="text-2xl sm:text-3xl font-bold" data-testid="text-username">{user.username}</h1>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/20 cursor-help" data-testid="badge-level">
-                        Level {level}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      <p className="font-semibold">Your Level</p>
-                      <p className="text-xs text-muted-foreground mt-1">Levels are earned by gaining XP. Each level requires 100 XP. Keep typing to level up!</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  {gamificationLoading ? (
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/20 cursor-help" data-testid="badge-level">
+                          Level {level}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p className="font-semibold">Your Level</p>
+                        <p className="text-xs text-muted-foreground mt-1">Levels are earned by gaining XP. Each level requires 100 XP. Keep typing to level up!</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
                 <p className="text-muted-foreground mt-1" data-testid="text-email">{user.email}</p>
                 {user.bio && (
@@ -584,7 +587,7 @@ export default function Profile() {
                 isRetrying={statsRefetching}
                 testId="button-retry-stats"
               />
-            ) : statsLoading ? (
+            ) : (statsLoading || gamificationLoading) ? (
               <StatsSkeleton />
             ) : stats ? (
               <div className="flex justify-center sm:justify-start gap-6 sm:gap-8 flex-wrap">
@@ -628,26 +631,36 @@ export default function Profile() {
             ) : (
               <StatsSkeleton />
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="max-w-xs mx-auto sm:mx-0 cursor-help" data-testid="level-progress">
-                  <div className="flex justify-between text-[10px] sm:text-xs text-muted-foreground mb-1">
-                    <span>Level {level}</span>
-                    <span>{xp % 100} / 100 XP</span>
-                  </div>
-                  <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-primary/70 transition-all duration-500"
-                      style={{ width: `${xpProgress}%` }}
-                    />
-                  </div>
+            {gamificationLoading ? (
+              <div className="max-w-xs mx-auto sm:mx-0">
+                <div className="flex justify-between mb-1">
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-3 w-16" />
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p className="font-semibold">Level Progress</p>
-                <p className="text-xs text-muted-foreground mt-1">Earn 100 XP to reach the next level. Complete tests and unlock badges to earn XP faster!</p>
-              </TooltipContent>
-            </Tooltip>
+                <Skeleton className="h-2 w-full rounded-full" />
+              </div>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="max-w-xs mx-auto sm:mx-0 cursor-help" data-testid="level-progress">
+                    <div className="flex justify-between text-[10px] sm:text-xs text-muted-foreground mb-1">
+                      <span>Level {level}</span>
+                      <span>{xp % 100} / 100 XP</span>
+                    </div>
+                    <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-primary to-primary/70 transition-all duration-500"
+                        style={{ width: `${xpProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="font-semibold">Level Progress</p>
+                  <p className="text-xs text-muted-foreground mt-1">Earn 100 XP to reach the next level. Complete tests and unlock badges to earn XP faster!</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {unlockedCount > 0 && (
               <div className="pt-3 border-t border-border/30">
@@ -894,7 +907,13 @@ export default function Profile() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                {badgeData?.badgeData && (
+                {(badgeLoading || gamificationLoading) ? (
+                  <>
+                    <Skeleton className="h-8 w-24 rounded-lg" />
+                    <Skeleton className="h-8 w-20 rounded-lg" />
+                    <Skeleton className="h-8 w-16 rounded-lg" />
+                  </>
+                ) : badgeData?.badgeData && (
                   <>
                     <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-2 rounded-lg bg-primary/10 border border-primary/20">
                       <Flame className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500" />
@@ -1104,10 +1123,11 @@ export default function Profile() {
                     <SelectItem value="code">Code</SelectItem>
                     <SelectItem value="dictation">Dictation</SelectItem>
                     <SelectItem value="stress">Stress</SelectItem>
+                    <SelectItem value="race">Race</SelectItem>
                   </SelectContent>
                 </Select>
               ) : (
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="all">All</TabsTrigger>
                   <TabsTrigger value="standard">Standard</TabsTrigger>
                   <TabsTrigger value="code">Code</TabsTrigger>
@@ -1115,6 +1135,7 @@ export default function Profile() {
                   {/* <TabsTrigger value="book">Book</TabsTrigger> */}
                   <TabsTrigger value="dictation">Dictation</TabsTrigger>
                   <TabsTrigger value="stress">Stress</TabsTrigger>
+                  <TabsTrigger value="race">Race</TabsTrigger>
                 </TabsList>
               )}
               <TabsContent value={certificateFilter} className="mt-4 sm:mt-6">
@@ -1203,16 +1224,18 @@ export default function Profile() {
                   
                   if (certType === 'dictation') {
                     return (
-                      <DictationCertificate
+                      <CertificateGenerator
+                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
                         wpm={selectedCertificate.wpm}
                         accuracy={selectedCertificate.accuracy}
+                        mode={selectedCertificate.duration}
+                        date={selectedCertificate.createdAt ? new Date(selectedCertificate.createdAt) : new Date()}
+                        freestyle={false}
+                        characters={selectedCertificate.metadata?.characters || 0}
+                        words={selectedCertificate.metadata?.totalWords || 0}
                         consistency={selectedCertificate.consistency}
-                        speedLevel={selectedCertificate.metadata?.speedLevel || 'Normal'}
-                        sentencesCompleted={selectedCertificate.metadata?.sentencesCompleted || 0}
-                        totalWords={selectedCertificate.metadata?.totalWords || 0}
-                        duration={selectedCertificate.duration}
-                        username={selectedCertificate.metadata?.username || user?.username || 'Typing Expert'}
                         verificationId={selectedCertificate.verificationId}
+                        modeLabel="Dictation Mode"
                       />
                     );
                   } else if (certType === 'stress') {
