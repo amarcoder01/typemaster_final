@@ -13,10 +13,8 @@
     "head_sampling_rate": 1.0
   },
 
-  // Upload source maps for better error debugging
-  "upload_source_maps": true,
-
   // Static assets configuration (frontend)
+  // Worker runs first for /api/* and /ws/* routes to proxy to backend
   "assets": {
     "directory": "./dist/public",
     "binding": "ASSETS",
@@ -28,70 +26,13 @@
     ]
   },
 
-  // KV Namespaces for caching and sessions
-  // Note: These will be auto-provisioned on first deploy if they don't exist
-  // To use existing namespaces, uncomment and add IDs:
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "SESSIONS",
-  //     "id": "YOUR_SESSIONS_KV_ID"
-  //   },
-  //   {
-  //     "binding": "CACHE",
-  //     "id": "YOUR_CACHE_KV_ID"
-  //   }
-  // ],
-
-  // R2 Buckets for file storage
-  // Note: These will be auto-provisioned on first deploy if they don't exist
-  // To use existing bucket, uncomment and add bucket name:
-  // "r2_buckets": [
-  //   {
-  //     "binding": "UPLOADS",
-  //     "bucket_name": "typemaster-uploads"
-  //   }
-  // ],
-
-  // Durable Objects for WebSocket connections (multiplayer races)
-  // Note: Will be created automatically on first deploy
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "RACE_ROOMS",
-        "class_name": "RaceRoom"
-      },
-      {
-        "name": "LEADERBOARD_WS",
-        "class_name": "LeaderboardWebSocket"
-      }
-    ]
-  },
-
-
-
-  // Environment variables (non-sensitive)
-  // Sensitive values should be added via wrangler secret
+  // Environment variables
+  // BACKEND_URL: URL of your backend server (Fly.io, Cloud Run, etc.)
   "vars": {
     "NODE_ENV": "production",
     "APP_URL": "https://typemasterai.com",
-    "REDIS_ENABLED": "false",
-    "LEADERBOARD_BATCH_WINDOW_MS": "2000",
-    "LEADERBOARD_BATCH_MAX_SIZE": "100",
-    "LEADERBOARD_REFRESH_INTERVAL_MS": "30000",
-    "LEADERBOARD_REFRESH_ENABLED": "true",
-    "WS_MAX_CONNECTIONS_PER_IP": "15",
-    "WS_HEARTBEAT_INTERVAL_MS": "30000"
+    "BACKEND_URL": "https://typemasterai.fly.dev"
   },
-
-  // CPU limits for Workers (requires paid plan - uncomment if on paid plan)
-  // "limits": {
-  //   "cpu_ms": 30000
-  // },
-
-  // Placement configuration - smart placement for database proximity (requires paid plan)
-  // "placement": {
-  //   "mode": "smart"
-  // },
 
   // Local development configuration
   "dev": {
@@ -99,28 +40,22 @@
     "local_protocol": "http"
   },
 
-  // Migrations for Durable Objects
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["RaceRoom", "LeaderboardWebSocket"]
-    }
-  ],
-
   // Environments
   "env": {
     "staging": {
       "name": "typemaster-staging",
       "vars": {
         "NODE_ENV": "staging",
-        "APP_URL": "https://staging.typemasterai.com"
+        "APP_URL": "https://staging.typemasterai.com",
+        "BACKEND_URL": "https://typemasterai-staging.fly.dev"
       }
     },
     "production": {
       "name": "typemaster",
       "vars": {
         "NODE_ENV": "production",
-        "APP_URL": "https://typemasterai.com"
+        "APP_URL": "https://typemasterai.com",
+        "BACKEND_URL": "https://typemasterai.fly.dev"
       }
     }
   }
