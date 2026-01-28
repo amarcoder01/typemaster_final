@@ -114,3 +114,10 @@ cloudbuild.yaml
 dist
 node_modules
 
+# Cloudflare
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.wrangler/
+wrangler-log/
+

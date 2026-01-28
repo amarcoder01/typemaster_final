@@ -1,0 +1,153 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "typemasterai",
+  "main": "server/cloudflare-worker.ts",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  
+  // Enable observability for logging and monitoring
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1.0
+  },
+
+  // Upload source maps for better error debugging
+  "upload_source_maps": true,
+
+  // Static assets configuration (frontend)
+  "assets": {
+    "directory": "./dist/public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/ws/*"
+    ]
+  },
+
+  // KV Namespaces for caching and sessions
+  // Note: Create these in Cloudflare dashboard, then add IDs here
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS"
+      // "id": "YOUR_KV_NAMESPACE_ID" - Add after creating in dashboard
+    },
+    {
+      "binding": "CACHE"
+      // "id": "YOUR_KV_NAMESPACE_ID" - Add after creating in dashboard
+    }
+  ],
+
+  // R2 Buckets for file storage
+  // Note: Create bucket in Cloudflare dashboard, then add name here
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS"
+      // "bucket_name": "typemasterai-uploads" - Add after creating in dashboard
+    }
+  ],
+
+  // Durable Objects for WebSocket connections (multiplayer races)
+  // Note: Configure after testing basic deployment
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RACE_ROOMS",
+        "class_name": "RaceRoom"
+      },
+      {
+        "name": "LEADERBOARD_WS",
+        "class_name": "LeaderboardWebSocket"
+      }
+    ]
+  },
+
+  // Queues for background job processing
+  // Note: Create queue in Cloudflare dashboard
+  "queues": {
+    "producers": [
+      {
+        "binding": "LEADERBOARD_QUEUE",
+        "queue": "typemasterai-leaderboard"
+      },
+      {
+        "binding": "ACHIEVEMENT_QUEUE", 
+        "queue": "typemasterai-achievements"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "typemasterai-leaderboard",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "typemasterai-dlq"
+      },
+      {
+        "queue": "typemasterai-achievements",
+        "max_batch_size": 50,
+        "max_batch_timeout": 10,
+        "max_retries": 3
+      }
+    ]
+  },
+
+  // Environment variables (non-sensitive)
+  // Sensitive values should be added via wrangler secret
+  "vars": {
+    "NODE_ENV": "production",
+    "APP_URL": "https://typemasterai.com",
+    "REDIS_ENABLED": "false",
+    "LEADERBOARD_BATCH_WINDOW_MS": "2000",
+    "LEADERBOARD_BATCH_MAX_SIZE": "100",
+    "LEADERBOARD_REFRESH_INTERVAL_MS": "30000",
+    "LEADERBOARD_REFRESH_ENABLED": "true",
+    "WS_MAX_CONNECTIONS_PER_IP": "15",
+    "WS_HEARTBEAT_INTERVAL_MS": "30000"
+  },
+
+  // CPU limits for Workers
+  "limits": {
+    "cpu_ms": 30000
+  },
+
+  // Placement configuration - smart placement for database proximity
+  "placement": {
+    "mode": "smart"
+  },
+
+  // Local development configuration
+  "dev": {
+    "port": 8787,
+    "local_protocol": "http"
+  },
+
+  // Migrations for Durable Objects
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RaceRoom", "LeaderboardWebSocket"]
+    }
+  ],
+
+  // Environments
+  "env": {
+    "staging": {
+      "name": "typemasterai-staging",
+      "vars": {
+        "NODE_ENV": "staging",
+        "APP_URL": "https://staging.typemasterai.com"
+      }
+    },
+    "production": {
+      "name": "typemasterai",
+      "vars": {
+        "NODE_ENV": "production",
+        "APP_URL": "https://typemasterai.com"
+      }
+    }
+  }
+}

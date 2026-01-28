@@ -1,0 +1,71 @@
+# Cloudflare Pages Headers Configuration
+# These headers improve security, performance, and SEO
+
+# Global headers for all pages
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-DNS-Prefetch-Control: on
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Immutable assets (JS/CSS with hashes)
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Static images and fonts
+/*.png
+  Cache-Control: public, max-age=2592000
+/*.jpg
+  Cache-Control: public, max-age=2592000
+/*.jpeg
+  Cache-Control: public, max-age=2592000
+/*.webp
+  Cache-Control: public, max-age=2592000
+/*.svg
+  Cache-Control: public, max-age=2592000
+/*.ico
+  Cache-Control: public, max-age=2592000
+/*.woff2
+  Cache-Control: public, max-age=2592000
+/*.woff
+  Cache-Control: public, max-age=2592000
+
+# Service worker - short cache for updates
+/service-worker.js
+  Cache-Control: public, max-age=3600
+
+# Manifest file
+/manifest.json
+  Cache-Control: public, max-age=86400
+
+# SEO files
+/sitemap*.xml
+  Cache-Control: public, max-age=86400
+/robots.txt
+  Cache-Control: public, max-age=86400
+
+# HTML pages - no cache for fresh content
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Robots-Tag: index, follow, max-image-preview:large, max-snippet:-1
+
+# Private routes - noindex
+/login
+  X-Robots-Tag: noindex, nofollow
+/register
+  X-Robots-Tag: noindex, nofollow
+/forgot-password
+  X-Robots-Tag: noindex, nofollow
+/reset-password
+  X-Robots-Tag: noindex, nofollow
+/settings
+  X-Robots-Tag: noindex, nofollow
+/admin/*
+  X-Robots-Tag: noindex, nofollow
+
+# API routes - CORS headers (handled by Worker, but fallback)
+/api/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, Authorization
